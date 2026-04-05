@@ -8,6 +8,7 @@ const db = new sqlite3.Database('./rideshare.db', (err) => {
     console.log('Connected to database!');
   }
 });
+
 // Create tables
 db.serialize(() => {
   // Users table
@@ -20,7 +21,8 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
- // Rides table
+
+  // Rides table
   db.run(`
     CREATE TABLE IF NOT EXISTS rides (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,6 +51,19 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (ride_id) REFERENCES rides(id),
       FOREIGN KEY (passenger_id) REFERENCES users(id)
+    )
+  `);
+
+  // Messages table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender_id INTEGER NOT NULL,
+      receiver_id INTEGER NOT NULL,
+      message TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (sender_id) REFERENCES users(id),
+      FOREIGN KEY (receiver_id) REFERENCES users(id)
     )
   `);
 

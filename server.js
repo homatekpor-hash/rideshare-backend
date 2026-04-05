@@ -163,6 +163,62 @@ app.get('/notifications/:userId', (req, res) => {
   });
 });
 // Start server
+// Send a message
+app.post('/messages', (req, res) => {
+  const { sender_id, receiver_id, message } = req.body;
+  const query = `INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`;
+  db.run(query, [sender_id, receiver_id, message], function (err) {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.json({ message: 'Message sent!', messageId: this.lastID });
+    }
+  });
+});
+
+// Get messages between two users
+app.get('/messages/:userId/:otherUserId', (req, res) => {
+  const { userId, otherUserId } = req.params;
+  const query = `
+    SELECT messages.*, users.name as sender_name
+    FROM messages
+    JOIN users ON messages.sender_id = users.id
+    WHERE (sender_id = ? AND receiver_id = ?)
+    OR (sender_id = ? AND receiver_id = ?)
+    ORDER BY messages.created_at ASC
+  `;
+  db.all(query, [userId, otherUserId, otherUserId, userId], (err, messages) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.json({ messages });
+    }
+  });
+});
+
+// Get all conversations for a user
+app.get('/conversations/:userId', (req, res) => {
+  const { userId } = req.params;
+  const query = `
+    SELECT DISTINCT
+    CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_user_id,
+    users.name as other_user_name,
+    messages.message as last_message,
+    messages.created_at
+    FROM messages
+    JOIN users ON users.id = CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
+    WHERE sender_id = ? OR receiver_id = ?
+    GROUP BY other_user_id
+    ORDER BY messages.created_at DESC
+  `;
+  db.all(query, [userId, userId, userId, userId], (err, conversations) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.json({ conversations });
+    }
+  });
+});
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
