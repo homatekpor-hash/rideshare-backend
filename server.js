@@ -3,7 +3,7 @@ const cors = require('cors');
 const db = require('./database');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
@@ -55,9 +55,37 @@ app.post('/rides', (req, res) => {
 
 // Find matching rides going same direction
 app.get('/rides/match', (req, res) => {
-  const { from_lat, from_lng, to_lat, to_lng } = req.query;
+  const { from_lat, from_lng, to_lat, to_lng, from_city, to_city } = req.query;
+
+  if (from_city || to_city) {
+    let query = `SELECT rides.*, users.name as driver_name FROM rides 
+    JOIN users ON rides.driver_id = users.id 
+    WHERE rides.status = 'active' AND rides.seats_available > 0`;
+    const params = [];
+
+    if (from_city) {
+      query += ` AND LOWER(rides.from_location) LIKE LOWER(?)`;
+      params.push(`%${from_city}%`);
+    }
+    if (to_city) {
+      query += ` AND LOWER(rides.to_location) LIKE LOWER(?)`;
+      params.push(`%${to_city}%`);
+    }
+
+    db.all(query, params, (err, rides) => {
+      if (err) {
+        res.status(400).json({ error: err.message });
+      } else {
+        res.json({ matches: rides });
+      }
+    });
+    return;
+  }
+
   const passengerAngle = Math.atan2(to_lat - from_lat, to_lng - from_lng);
-  const query = `SELECT * FROM rides WHERE status = 'active' AND seats_available > 0`;
+  const query = `SELECT rides.*, users.name as driver_name FROM rides 
+  JOIN users ON rides.driver_id = users.id 
+  WHERE rides.status = 'active' AND rides.seats_available > 0`;
   db.all(query, [], (err, rides) => {
     if (err) {
       res.status(400).json({ error: err.message });
@@ -252,7 +280,96 @@ app.get('/ratings/:driverId', (req, res) => {
   });
 });
 
+// Cancel a ride
+app.put('/rides/:rideId/cancel', (req, res) => {
+  const { rideId } = req.params;
+  const query = `UPDATE rides SET status = 'cancelled' WHERE id = ?`;
+  db.run(query, [rideId], function (err) {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.json({ message: 'Ride cancelled!' });
+    }
+  });
+});
+
+// Cancel a booking
+app.put('/bookings/:bookingId/cancel', (req, res) => {
+  const { bookingId } = req.params;
+  db.get(`SELECT ride_id FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
+    if (err || !booking) {
+      res.status(400).json({ error: 'Booking not found' });
+    } else {
+      db.run(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`, [bookingId]);
+      db.run(`UPDATE rides SET seats_available = seats_available + 1 WHERE id = ?`, [booking.ride_id]);
+      res.json({ message: 'Booking cancelled!' });
+    }
+  });
+});
+
+// Get driver profile
+app.get('/profile/:userId', (req, res) => {
+  const { userId } = req.params;
+  const query = `SELECT id, name, email, created_at FROM users WHERE id = ?`;
+  db.get(query, [userId], (err, user) => {
+    if (err || !user) {
+      res.status(400).json({ error: 'User not found' });
+    } else {
+      res.json({ user });
+    }
+  });
+});
+
+// Admin - get all rides
+app.get('/admin/rides', (req, res) => {
+  const query = `
+    SELECT rides.*, users.name as driver_name
+    FROM rides
+    JOIN users ON rides.driver_id = users.id
+    ORDER BY rides.created_at DESC
+  `;
+  db.all(query, [], (err, rides) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.json({ rides });
+    }
+  });
+});
+
+// Admin - get all users
+app.get('/admin/users', (req, res) => {
+  const query = `SELECT id, name, email, created_at FROM users ORDER BY created_at DESC`;
+  db.all(query, [], (err, users) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.json({ users });
+    }
+  });
+});
+
+// Admin - get all bookings
+app.get('/admin/bookings', (req, res) => {
+  const query = `
+    SELECT bookings.*, 
+    rides.from_location, rides.to_location,
+    users.name as passenger_name
+    FROM bookings
+    JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON bookings.passenger_id = users.id
+    ORDER BY bookings.created_at DESC
+  `;
+  db.all(query, [], (err, bookings) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.json({ bookings });
+    }
+  });
+});
+
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
