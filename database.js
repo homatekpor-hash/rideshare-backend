@@ -1,6 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
 
-// Create and connect to database
 const db = new sqlite3.Database('./rideshare.db', (err) => {
   if (err) {
     console.error('Error connecting to database:', err);
@@ -9,20 +8,19 @@ const db = new sqlite3.Database('./rideshare.db', (err) => {
   }
 });
 
-// Create tables
 db.serialize(() => {
-  // Users table
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
+      profile_picture TEXT DEFAULT NULL,
+      is_online INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  // Rides table
   db.run(`
     CREATE TABLE IF NOT EXISTS rides (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,13 +33,13 @@ db.serialize(() => {
       to_lng REAL NOT NULL,
       seats_available INTEGER NOT NULL,
       departure_time TEXT NOT NULL,
+      price REAL DEFAULT 0,
       status TEXT DEFAULT 'active',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (driver_id) REFERENCES users(id)
     )
   `);
 
-  // Bookings table
   db.run(`
     CREATE TABLE IF NOT EXISTS bookings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +52,6 @@ db.serialize(() => {
     )
   `);
 
-  // Messages table
   db.run(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +64,6 @@ db.serialize(() => {
     )
   `);
 
-  // Ratings table
   db.run(`
     CREATE TABLE IF NOT EXISTS ratings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
