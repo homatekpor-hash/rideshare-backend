@@ -67,6 +67,22 @@ db.serialize(() => {
     )
   `);
 
+  // Ratings table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ratings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ride_id INTEGER NOT NULL,
+      passenger_id INTEGER NOT NULL,
+      driver_id INTEGER NOT NULL,
+      rating INTEGER NOT NULL,
+      comment TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (ride_id) REFERENCES rides(id),
+      FOREIGN KEY (passenger_id) REFERENCES users(id),
+      FOREIGN KEY (driver_id) REFERENCES users(id)
+    )
+  `);
+
   console.log('Database tables ready!');
 });
 

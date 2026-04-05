@@ -4,6 +4,7 @@ const db = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -55,21 +56,16 @@ app.post('/rides', (req, res) => {
 // Find matching rides going same direction
 app.get('/rides/match', (req, res) => {
   const { from_lat, from_lng, to_lat, to_lng } = req.query;
-
-  // Calculate direction angle for the passenger
   const passengerAngle = Math.atan2(to_lat - from_lat, to_lng - from_lng);
-
-  // Get all active rides
   const query = `SELECT * FROM rides WHERE status = 'active' AND seats_available > 0`;
   db.all(query, [], (err, rides) => {
     if (err) {
       res.status(400).json({ error: err.message });
     } else {
-      // Filter rides going in the same direction
       const matchedRides = rides.filter(ride => {
         const rideAngle = Math.atan2(ride.to_lat - ride.from_lat, ride.to_lng - ride.from_lng);
         const angleDiff = Math.abs(passengerAngle - rideAngle);
-        return angleDiff < 0.5; // within ~30 degrees same direction
+        return angleDiff < 0.5;
       });
       res.json({ matches: matchedRides });
     }
@@ -96,20 +92,20 @@ app.post('/bookings', (req, res) => {
     if (err) {
       res.status(400).json({ error: err.message });
     } else {
-      // Reduce available seats
       db.run(`UPDATE rides SET seats_available = seats_available - 1 WHERE id = ?`, [ride_id]);
       res.json({ message: 'Ride booked!', bookingId: this.lastID });
     }
   });
 });
+
 // Get rides posted by a specific driver
 app.get('/my-rides/:userId', (req, res) => {
   const { userId } = req.params;
   const query = `
-    SELECT rides.*, COUNT(bookings.id) as booking_count 
-    FROM rides 
-    LEFT JOIN bookings ON rides.id = bookings.ride_id 
-    WHERE rides.driver_id = ? 
+    SELECT rides.*, COUNT(bookings.id) as booking_count
+    FROM rides
+    LEFT JOIN bookings ON rides.id = bookings.ride_id
+    WHERE rides.driver_id = ?
     GROUP BY rides.id
   `;
   db.all(query, [userId], (err, rides) => {
@@ -127,7 +123,7 @@ app.get('/my-bookings/:userId', (req, res) => {
   const query = `
     SELECT bookings.id, bookings.status as booking_status,
     rides.from_location, rides.to_location, rides.departure_time,
-    users.name as driver_name
+    rides.driver_id, users.name as driver_name
     FROM bookings
     JOIN rides ON bookings.ride_id = rides.id
     JOIN users ON rides.driver_id = users.id
@@ -141,6 +137,7 @@ app.get('/my-bookings/:userId', (req, res) => {
     }
   });
 });
+
 // Get notifications for a driver
 app.get('/notifications/:userId', (req, res) => {
   const { userId } = req.params;
@@ -162,7 +159,7 @@ app.get('/notifications/:userId', (req, res) => {
     }
   });
 });
-// Start server
+
 // Send a message
 app.post('/messages', (req, res) => {
   const { sender_id, receiver_id, message } = req.body;
@@ -219,6 +216,43 @@ app.get('/conversations/:userId', (req, res) => {
     }
   });
 });
+
+// Submit a rating
+app.post('/ratings', (req, res) => {
+  const { ride_id, passenger_id, driver_id, rating, comment } = req.body;
+  const query = `INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment) VALUES (?, ?, ?, ?, ?)`;
+  db.run(query, [ride_id, passenger_id, driver_id, rating, comment], function (err) {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.json({ message: 'Rating submitted!', ratingId: this.lastID });
+    }
+  });
+});
+
+// Get ratings for a driver
+app.get('/ratings/:driverId', (req, res) => {
+  const { driverId } = req.params;
+  const query = `
+    SELECT ratings.*, users.name as passenger_name
+    FROM ratings
+    JOIN users ON ratings.passenger_id = users.id
+    WHERE ratings.driver_id = ?
+    ORDER BY ratings.created_at DESC
+  `;
+  db.all(query, [driverId], (err, ratings) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+    } else {
+      const avgRating = ratings.length > 0
+        ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(1)
+        : 0;
+      res.json({ ratings, avgRating });
+    }
+  });
+});
+
+// Start server
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
