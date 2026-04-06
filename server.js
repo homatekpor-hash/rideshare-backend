@@ -13,241 +13,59 @@ app.get('/', (req, res) => {
   res.json({ message: 'Rideshare API is running!' });
 });
 
+// Register
 app.post('/register', (req, res) => {
-  const { name, email, password } = req.body;
-  const query = `INSERT INTO users (name, email, password) VALUES (?, ?, ?)`;
-  db.run(query, [name, email, password], function (err) {
-    if (err) {
-      res.status(400).json({ error: 'Email already exists' });
-    } else {
-      res.json({ message: 'User registered!', userId: this.lastID });
-    }
-  });
+  const { name, email, password, role, referral_code } = req.body;
+  const myReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+  db.run(`INSERT INTO users (name, email, password, role, referral_code) VALUES (?, ?, ?, ?, ?)`,
+    [name, email, password, role || 'rider', myReferralCode], function (err) {
+      if (err) { res.status(400).json({ error: 'Email already exists' }); }
+      else {
+        if (referral_code) {
+          db.get(`SELECT id FROM users WHERE referral_code = ?`, [referral_code], (err, referrer) => {
+            if (referrer) {
+              db.run(`INSERT INTO referrals (referrer_id, referred_id) VALUES (?, ?)`, [referrer.id, this.lastID]);
+              db.run(`UPDATE users SET wallet_balance = wallet_balance + 5 WHERE id = ?`, [referrer.id]);
+            }
+          });
+        }
+        res.json({ message: 'User registered!', userId: this.lastID, role: role || 'rider', referralCode: myReferralCode });
+      }
+    });
 });
 
+// Login
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
-  const query = `SELECT * FROM users WHERE email = ? AND password = ?`;
-  db.get(query, [email, password], (err, user) => {
-    if (err || !user) {
-      res.status(400).json({ error: 'Invalid email or password' });
-    } else {
-      res.json({ message: 'Login successful!', userId: user.id, name: user.name, profilePicture: user.profile_picture, isOnline: user.is_online });
-    }
-  });
-});
-
-app.post('/rides', (req, res) => {
-  const { driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price } = req.body;
-  const query = `INSERT INTO rides (driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-  db.run(query, [driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price || 0], function (err) {
-    if (err) {
-      res.status(400).json({ error: err.message });
-    } else {
-      res.json({ message: 'Ride posted!', rideId: this.lastID });
-    }
-  });
-});
-
-app.get('/rides/match', (req, res) => {
-  const { from_lat, from_lng, to_lat, to_lng, from_city, to_city } = req.query;
-
-  if (from_city || to_city) {
-    let query = `SELECT rides.*, users.name as driver_name, users.profile_picture, users.is_online FROM rides 
-    JOIN users ON rides.driver_id = users.id 
-    WHERE rides.status = 'active' AND rides.seats_available > 0`;
-    const params = [];
-    if (from_city) { query += ` AND LOWER(rides.from_location) LIKE LOWER(?)`; params.push(`%${from_city}%`); }
-    if (to_city) { query += ` AND LOWER(rides.to_location) LIKE LOWER(?)`; params.push(`%${to_city}%`); }
-    db.all(query, params, (err, rides) => {
-      if (err) { res.status(400).json({ error: err.message }); }
-      else { res.json({ matches: rides }); }
-    });
-    return;
-  }
-
-  const passengerAngle = Math.atan2(to_lat - from_lat, to_lng - from_lng);
-  const query = `SELECT rides.*, users.name as driver_name, users.profile_picture, users.is_online FROM rides 
-  JOIN users ON rides.driver_id = users.id 
-  WHERE rides.status = 'active' AND rides.seats_available > 0`;
-  db.all(query, [], (err, rides) => {
-    if (err) { res.status(400).json({ error: err.message }); }
+  db.get(`SELECT * FROM users WHERE email = ? AND password = ?`, [email, password], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'Invalid email or password' }); }
     else {
-      const matchedRides = rides.filter(ride => {
-        const rideAngle = Math.atan2(ride.to_lat - ride.from_lat, ride.to_lng - ride.from_lng);
-        const angleDiff = Math.abs(passengerAngle - rideAngle);
-        return angleDiff < 0.5;
+      res.json({
+        message: 'Login successful!',
+        userId: user.id,
+        name: user.name,
+        role: user.role,
+        phone: user.phone,
+        profilePicture: user.profile_picture,
+        isOnline: user.is_online,
+        walletBalance: user.wallet_balance,
+        referralCode: user.referral_code
       });
-      res.json({ matches: matchedRides });
     }
   });
 });
 
-app.get('/rides', (req, res) => {
-  const query = `SELECT rides.*, users.name as driver_name FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active'`;
-  db.all(query, [], (err, rides) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ rides }); }
-  });
-});
-
-app.post('/bookings', (req, res) => {
-  const { ride_id, passenger_id } = req.body;
-  const query = `INSERT INTO bookings (ride_id, passenger_id) VALUES (?, ?)`;
-  db.run(query, [ride_id, passenger_id], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else {
-      db.run(`UPDATE rides SET seats_available = seats_available - 1 WHERE id = ?`, [ride_id]);
-      res.json({ message: 'Ride booked!', bookingId: this.lastID });
-    }
-  });
-});
-
-app.get('/my-rides/:userId', (req, res) => {
+// Update profile
+app.put('/users/:userId/profile', (req, res) => {
   const { userId } = req.params;
-  const query = `
-    SELECT rides.*, COUNT(bookings.id) as booking_count
-    FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id
-    WHERE rides.driver_id = ? GROUP BY rides.id
-  `;
-  db.all(query, [userId], (err, rides) => {
+  const { name, phone } = req.body;
+  db.run(`UPDATE users SET name = ?, phone = ? WHERE id = ?`, [name, phone, userId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ rides }); }
+    else { res.json({ message: 'Profile updated!' }); }
   });
 });
 
-app.get('/my-bookings/:userId', (req, res) => {
-  const { userId } = req.params;
-  const query = `
-    SELECT bookings.id, bookings.status as booking_status,
-    rides.from_location, rides.to_location, rides.departure_time, rides.price,
-    rides.driver_id, users.name as driver_name
-    FROM bookings
-    JOIN rides ON bookings.ride_id = rides.id
-    JOIN users ON rides.driver_id = users.id
-    WHERE bookings.passenger_id = ?
-  `;
-  db.all(query, [userId], (err, bookings) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ bookings }); }
-  });
-});
-
-app.get('/notifications/:userId', (req, res) => {
-  const { userId } = req.params;
-  const query = `
-    SELECT bookings.id, bookings.created_at,
-    users.name as passenger_name,
-    rides.from_location, rides.to_location
-    FROM bookings
-    JOIN rides ON bookings.ride_id = rides.id
-    JOIN users ON bookings.passenger_id = users.id
-    WHERE rides.driver_id = ?
-    ORDER BY bookings.created_at DESC
-  `;
-  db.all(query, [userId], (err, notifications) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ notifications }); }
-  });
-});
-
-app.post('/messages', (req, res) => {
-  const { sender_id, receiver_id, message } = req.body;
-  const query = `INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`;
-  db.run(query, [sender_id, receiver_id, message], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Message sent!', messageId: this.lastID }); }
-  });
-});
-
-app.get('/messages/:userId/:otherUserId', (req, res) => {
-  const { userId, otherUserId } = req.params;
-  const query = `
-    SELECT messages.*, users.name as sender_name FROM messages
-    JOIN users ON messages.sender_id = users.id
-    WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-    ORDER BY messages.created_at ASC
-  `;
-  db.all(query, [userId, otherUserId, otherUserId, userId], (err, messages) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ messages }); }
-  });
-});
-
-app.get('/conversations/:userId', (req, res) => {
-  const { userId } = req.params;
-  const query = `
-    SELECT DISTINCT
-    CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_user_id,
-    users.name as other_user_name,
-    messages.message as last_message, messages.created_at
-    FROM messages
-    JOIN users ON users.id = CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
-    WHERE sender_id = ? OR receiver_id = ?
-    GROUP BY other_user_id ORDER BY messages.created_at DESC
-  `;
-  db.all(query, [userId, userId, userId, userId], (err, conversations) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ conversations }); }
-  });
-});
-
-app.post('/ratings', (req, res) => {
-  const { ride_id, passenger_id, driver_id, rating, comment } = req.body;
-  const query = `INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment) VALUES (?, ?, ?, ?, ?)`;
-  db.run(query, [ride_id, passenger_id, driver_id, rating, comment], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Rating submitted!', ratingId: this.lastID }); }
-  });
-});
-
-app.get('/ratings/:driverId', (req, res) => {
-  const { driverId } = req.params;
-  const query = `
-    SELECT ratings.*, users.name as passenger_name FROM ratings
-    JOIN users ON ratings.passenger_id = users.id
-    WHERE ratings.driver_id = ? ORDER BY ratings.created_at DESC
-  `;
-  db.all(query, [driverId], (err, ratings) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else {
-      const avgRating = ratings.length > 0
-        ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(1) : 0;
-      res.json({ ratings, avgRating });
-    }
-  });
-});
-
-app.put('/rides/:rideId/cancel', (req, res) => {
-  const { rideId } = req.params;
-  db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Ride cancelled!' }); }
-  });
-});
-
-app.put('/bookings/:bookingId/cancel', (req, res) => {
-  const { bookingId } = req.params;
-  db.get(`SELECT ride_id FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
-    if (err || !booking) { res.status(400).json({ error: 'Booking not found' }); }
-    else {
-      db.run(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`, [bookingId]);
-      db.run(`UPDATE rides SET seats_available = seats_available + 1 WHERE id = ?`, [booking.ride_id]);
-      res.json({ message: 'Booking cancelled!' });
-    }
-  });
-});
-
-app.get('/profile/:userId', (req, res) => {
-  const { userId } = req.params;
-  const query = `SELECT id, name, email, profile_picture, is_online, created_at FROM users WHERE id = ?`;
-  db.get(query, [userId], (err, user) => {
-    if (err || !user) { res.status(400).json({ error: 'User not found' }); }
-    else { res.json({ user }); }
-  });
-});
-
-// Update online/offline status
+// Update online status
 app.put('/users/:userId/status', (req, res) => {
   const { userId } = req.params;
   const { is_online } = req.body;
@@ -267,53 +85,306 @@ app.put('/users/:userId/picture', (req, res) => {
   });
 });
 
-// Get earnings for a driver
-app.get('/earnings/:userId', (req, res) => {
+// Get profile
+app.get('/profile/:userId', (req, res) => {
   const { userId } = req.params;
-  const query = `
-    SELECT rides.id, rides.from_location, rides.to_location, rides.departure_time,
-    rides.price, COUNT(bookings.id) as passengers,
-    (rides.price * COUNT(bookings.id)) as total_earned
-    FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id
-    WHERE rides.driver_id = ? AND rides.status != 'cancelled'
-    GROUP BY rides.id ORDER BY rides.created_at DESC
-  `;
-  db.all(query, [userId], (err, earnings) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else {
-      const totalEarnings = earnings.reduce((sum, e) => sum + (e.total_earned || 0), 0);
-      res.json({ earnings, totalEarnings });
+  db.get(`SELECT id, name, email, role, phone, profile_picture, is_online, wallet_balance, referral_code, created_at FROM users WHERE id = ?`, [userId], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'User not found' }); }
+    else { res.json({ user }); }
+  });
+});
+
+// Upload driver documents
+app.post('/driver/documents', (req, res) => {
+  const { driver_id, license_image, national_id_image, insurance_image, roadworthiness_image } = req.body;
+  db.get(`SELECT id FROM driver_documents WHERE driver_id = ?`, [driver_id], (err, existing) => {
+    if (existing) {
+      db.run(`UPDATE driver_documents SET license_image=?, national_id_image=?, insurance_image=?, roadworthiness_image=? WHERE driver_id=?`,
+        [license_image, national_id_image, insurance_image, roadworthiness_image, driver_id], function (err) {
+          if (err) { res.status(400).json({ error: err.message }); }
+          else { res.json({ message: 'Documents updated!' }); }
+        });
+    } else {
+      db.run(`INSERT INTO driver_documents (driver_id, license_image, national_id_image, insurance_image, roadworthiness_image) VALUES (?, ?, ?, ?, ?)`,
+        [driver_id, license_image, national_id_image, insurance_image, roadworthiness_image], function (err) {
+          if (err) { res.status(400).json({ error: err.message }); }
+          else { res.json({ message: 'Documents uploaded!' }); }
+        });
     }
   });
 });
 
+// Get driver documents
+app.get('/driver/documents/:driverId', (req, res) => {
+  const { driverId } = req.params;
+  db.get(`SELECT * FROM driver_documents WHERE driver_id = ?`, [driverId], (err, docs) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ documents: docs || {} }); }
+  });
+});
+
+// Post ride
+app.post('/rides', (req, res) => {
+  const { driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price } = req.body;
+  db.run(`INSERT INTO rides (driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price || 0], function (err) {
+      if (err) { res.status(400).json({ error: err.message }); }
+      else { res.json({ message: 'Ride posted!', rideId: this.lastID }); }
+    });
+});
+
+// Find matching rides
+app.get('/rides/match', (req, res) => {
+  const { from_lat, from_lng, to_lat, to_lng, from_city, to_city } = req.query;
+  if (from_city || to_city) {
+    let query = `SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides 
+    JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`;
+    const params = [];
+    if (from_city) { query += ` AND LOWER(rides.from_location) LIKE LOWER(?)`; params.push(`%${from_city}%`); }
+    if (to_city) { query += ` AND LOWER(rides.to_location) LIKE LOWER(?)`; params.push(`%${to_city}%`); }
+    db.all(query, params, (err, rides) => {
+      if (err) { res.status(400).json({ error: err.message }); }
+      else { res.json({ matches: rides }); }
+    });
+    return;
+  }
+  const passengerAngle = Math.atan2(to_lat - from_lat, to_lng - from_lng);
+  db.all(`SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`, [], (err, rides) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      const matchedRides = rides.filter(ride => {
+        const rideAngle = Math.atan2(ride.to_lat - ride.from_lat, ride.to_lng - ride.from_lng);
+        return Math.abs(passengerAngle - rideAngle) < 0.5;
+      });
+      res.json({ matches: matchedRides });
+    }
+  });
+});
+
+// Get all rides
+app.get('/rides', (req, res) => {
+  db.all(`SELECT rides.*, users.name as driver_name FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active'`, [], (err, rides) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ rides }); }
+  });
+});
+
+// Book ride
+app.post('/bookings', (req, res) => {
+  const { ride_id, passenger_id } = req.body;
+  db.run(`INSERT INTO bookings (ride_id, passenger_id) VALUES (?, ?)`, [ride_id, passenger_id], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      db.run(`UPDATE rides SET seats_available = seats_available - 1 WHERE id = ?`, [ride_id]);
+      res.json({ message: 'Ride booked!', bookingId: this.lastID });
+    }
+  });
+});
+
+// Get my rides (driver)
+app.get('/my-rides/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`SELECT rides.*, COUNT(bookings.id) as booking_count FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id WHERE rides.driver_id = ? GROUP BY rides.id ORDER BY rides.created_at DESC`, [userId], (err, rides) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ rides }); }
+  });
+});
+
+// Get my bookings (rider)
+app.get('/my-bookings/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`SELECT bookings.id, bookings.status as booking_status, rides.from_location, rides.to_location, rides.departure_time, rides.price, rides.driver_id, users.name as driver_name, users.phone as driver_phone FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id WHERE bookings.passenger_id = ? ORDER BY bookings.created_at DESC`, [userId], (err, bookings) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ bookings }); }
+  });
+});
+
+// Cancel ride
+app.put('/rides/:rideId/cancel', (req, res) => {
+  const { rideId } = req.params;
+  db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Ride cancelled!' }); }
+  });
+});
+
+// Cancel booking
+app.put('/bookings/:bookingId/cancel', (req, res) => {
+  const { bookingId } = req.params;
+  db.get(`SELECT ride_id FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
+    if (err || !booking) { res.status(400).json({ error: 'Booking not found' }); }
+    else {
+      db.run(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`, [bookingId]);
+      db.run(`UPDATE rides SET seats_available = seats_available + 1 WHERE id = ?`, [booking.ride_id]);
+      res.json({ message: 'Booking cancelled!' });
+    }
+  });
+});
+
+// Notifications
+app.get('/notifications/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`SELECT bookings.id, bookings.created_at, users.name as passenger_name, rides.from_location, rides.to_location FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id WHERE rides.driver_id = ? ORDER BY bookings.created_at DESC`, [userId], (err, notifications) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ notifications }); }
+  });
+});
+
+// Messages
+app.post('/messages', (req, res) => {
+  const { sender_id, receiver_id, message } = req.body;
+  db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [sender_id, receiver_id, message], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Message sent!', messageId: this.lastID }); }
+  });
+});
+
+app.get('/messages/:userId/:otherUserId', (req, res) => {
+  const { userId, otherUserId } = req.params;
+  db.all(`SELECT messages.*, users.name as sender_name FROM messages JOIN users ON messages.sender_id = users.id WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY messages.created_at ASC`, [userId, otherUserId, otherUserId, userId], (err, messages) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ messages }); }
+  });
+});
+
+app.get('/conversations/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`SELECT DISTINCT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_user_id, users.name as other_user_name, messages.message as last_message, messages.created_at FROM messages JOIN users ON users.id = CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END WHERE sender_id = ? OR receiver_id = ? GROUP BY other_user_id ORDER BY messages.created_at DESC`, [userId, userId, userId, userId], (err, conversations) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ conversations }); }
+  });
+});
+
+// Ratings
+app.post('/ratings', (req, res) => {
+  const { ride_id, passenger_id, driver_id, rating, comment } = req.body;
+  db.run(`INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment) VALUES (?, ?, ?, ?, ?)`, [ride_id, passenger_id, driver_id, rating, comment], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Rating submitted!', ratingId: this.lastID }); }
+  });
+});
+
+app.get('/ratings/:driverId', (req, res) => {
+  const { driverId } = req.params;
+  db.all(`SELECT ratings.*, users.name as passenger_name FROM ratings JOIN users ON ratings.passenger_id = users.id WHERE ratings.driver_id = ? ORDER BY ratings.created_at DESC`, [driverId], (err, ratings) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      const avgRating = ratings.length > 0 ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(1) : 0;
+      res.json({ ratings, avgRating });
+    }
+  });
+});
+
+// Earnings
+app.get('/earnings/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`SELECT rides.id, rides.from_location, rides.to_location, rides.departure_time, rides.price, COUNT(bookings.id) as passengers, (rides.price * COUNT(bookings.id)) as gross_earned, (rides.price * COUNT(bookings.id) * 0.9) as net_earned, (rides.price * COUNT(bookings.id) * 0.1) as commission FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id WHERE rides.driver_id = ? AND rides.status != 'cancelled' GROUP BY rides.id ORDER BY rides.created_at DESC`, [userId], (err, earnings) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      const totalGross = earnings.reduce((sum, e) => sum + (e.gross_earned || 0), 0);
+      const totalNet = earnings.reduce((sum, e) => sum + (e.net_earned || 0), 0);
+      const totalCommission = earnings.reduce((sum, e) => sum + (e.commission || 0), 0);
+      const totalPassengers = earnings.reduce((sum, e) => sum + (e.passengers || 0), 0);
+      res.json({ earnings, totalGross, totalNet, totalCommission, totalPassengers });
+    }
+  });
+});
+
+// Submit complaint
+app.post('/complaints', (req, res) => {
+  const { user_id, subject, message } = req.body;
+  db.run(`INSERT INTO complaints (user_id, subject, message) VALUES (?, ?, ?)`, [user_id, subject, message], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Complaint submitted!', complaintId: this.lastID }); }
+  });
+});
+
+// Get complaints
+app.get('/complaints', (req, res) => {
+  db.all(`SELECT complaints.*, users.name as user_name, users.role FROM complaints JOIN users ON complaints.user_id = users.id ORDER BY complaints.created_at DESC`, [], (err, complaints) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ complaints }); }
+  });
+});
+
+// Update complaint status
+app.put('/complaints/:complaintId', (req, res) => {
+  const { complaintId } = req.params;
+  const { status } = req.body;
+  db.run(`UPDATE complaints SET status = ? WHERE id = ?`, [status, complaintId], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Complaint updated!' }); }
+  });
+});
+
+// Get referrals
+app.get('/referrals/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`SELECT referrals.*, users.name as referred_name, users.created_at as joined_at FROM referrals JOIN users ON referrals.referred_id = users.id WHERE referrals.referrer_id = ? ORDER BY referrals.created_at DESC`, [userId], (err, referrals) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ referrals }); }
+  });
+});
+
+// Wallet
+app.get('/wallet/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.get(`SELECT wallet_balance FROM users WHERE id = ?`, [userId], (err, user) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      db.all(`SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC`, [userId], (err, transactions) => {
+        res.json({ balance: user.wallet_balance, transactions });
+      });
+    }
+  });
+});
+
+// Admin routes
 app.get('/admin/rides', (req, res) => {
-  const query = `SELECT rides.*, users.name as driver_name FROM rides JOIN users ON rides.driver_id = users.id ORDER BY rides.created_at DESC`;
-  db.all(query, [], (err, rides) => {
+  db.all(`SELECT rides.*, users.name as driver_name FROM rides JOIN users ON rides.driver_id = users.id ORDER BY rides.created_at DESC`, [], (err, rides) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ rides }); }
   });
 });
 
 app.get('/admin/users', (req, res) => {
-  const query = `SELECT id, name, email, is_online, created_at FROM users ORDER BY created_at DESC`;
-  db.all(query, [], (err, users) => {
+  db.all(`SELECT id, name, email, role, phone, is_online, wallet_balance, referral_code, created_at FROM users ORDER BY created_at DESC`, [], (err, users) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ users }); }
   });
 });
 
 app.get('/admin/bookings', (req, res) => {
-  const query = `
-    SELECT bookings.*, rides.from_location, rides.to_location,
-    users.name as passenger_name FROM bookings
-    JOIN rides ON bookings.ride_id = rides.id
-    JOIN users ON bookings.passenger_id = users.id
-    ORDER BY bookings.created_at DESC
-  `;
-  db.all(query, [], (err, bookings) => {
+  db.all(`SELECT bookings.*, rides.from_location, rides.to_location, rides.price, users.name as passenger_name FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id ORDER BY bookings.created_at DESC`, [], (err, bookings) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ bookings }); }
+  });
+});
+
+app.get('/admin/documents', (req, res) => {
+  db.all(`SELECT driver_documents.*, users.name as driver_name FROM driver_documents JOIN users ON driver_documents.driver_id = users.id ORDER BY driver_documents.created_at DESC`, [], (err, documents) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ documents }); }
+  });
+});
+
+app.put('/admin/documents/:driverId/verify', (req, res) => {
+  const { driverId } = req.params;
+  db.run(`UPDATE driver_documents SET verified = 1 WHERE driver_id = ?`, [driverId], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Driver verified!' }); }
+  });
+});
+
+app.get('/admin/revenue', (req, res) => {
+  db.all(`SELECT rides.id, rides.price, COUNT(bookings.id) as passengers, (rides.price * COUNT(bookings.id) * 0.1) as commission FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id WHERE rides.status != 'cancelled' GROUP BY rides.id`, [], (err, data) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      const totalRevenue = data.reduce((sum, d) => sum + (d.commission || 0), 0);
+      const totalRides = data.length;
+      const totalPassengers = data.reduce((sum, d) => sum + (d.passengers || 0), 0);
+      res.json({ data, totalRevenue, totalRides, totalPassengers });
+    }
   });
 });
 
