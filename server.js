@@ -387,7 +387,14 @@ app.get('/admin/revenue', (req, res) => {
     }
   });
 });
-
+// Temporary admin setup route
+app.get('/setup-admin/:email', (req, res) => {
+  const { email } = req.params;
+  db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: `Admin role set for ${email}!` }); }
+  });
+});
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
