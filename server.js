@@ -13,12 +13,36 @@ app.get('/', (req, res) => {
   res.json({ message: 'Rideshare API is running!' });
 });
 
+// Auto migrate database
+db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'rider'`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN profile_picture TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN is_online INTEGER DEFAULT 0`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN wallet_balance REAL DEFAULT 0`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE rides ADD COLUMN price REAL DEFAULT 0`, () => {});
+db.run(`CREATE TABLE IF NOT EXISTS driver_documents (id INTEGER PRIMARY KEY AUTOINCREMENT, driver_id INTEGER, license_front TEXT, license_back TEXT, national_id_front TEXT, national_id_back TEXT, insurance_image TEXT, roadworthiness_image TEXT, face_photo TEXT, verified INTEGER DEFAULT 0, rejection_reason TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN license_front TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN license_back TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN national_id_front TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN national_id_back TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN face_photo TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN rejection_reason TEXT DEFAULT NULL`, () => {});
+db.run(`CREATE TABLE IF NOT EXISTS complaints (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, subject TEXT, message TEXT, status TEXT DEFAULT 'open', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
+db.run(`CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER, referred_id INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
+db.run(`CREATE TABLE IF NOT EXISTS wallet_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount REAL, type TEXT, description TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN rejection_reason TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN license_front TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN license_back TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN national_id_front TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN national_id_back TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE driver_documents ADD COLUMN face_photo TEXT DEFAULT NULL`, () => {});
 // Register
 app.post('/register', (req, res) => {
   const { name, email, password, role, referral_code } = req.body;
   const myReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
   db.run(`INSERT INTO users (name, email, password, role, referral_code) VALUES (?, ?, ?, ?, ?)`,
-    [name, email, password, role || 'rider', myReferralCode], function (err) {
+    [name, email, password, role || 'rider', myReferralCode], function(err) {
       if (err) { res.status(400).json({ error: 'Email already exists' }); }
       else {
         if (referral_code) {
@@ -55,11 +79,20 @@ app.post('/login', (req, res) => {
   });
 });
 
+// Setup admin route
+app.get('/setup-admin/:email', (req, res) => {
+  const { email } = req.params;
+  db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: `Admin role set for ${email}!` }); }
+  });
+});
+
 // Update profile
 app.put('/users/:userId/profile', (req, res) => {
   const { userId } = req.params;
   const { name, phone } = req.body;
-  db.run(`UPDATE users SET name = ?, phone = ? WHERE id = ?`, [name, phone, userId], function (err) {
+  db.run(`UPDATE users SET name = ?, phone = ? WHERE id = ?`, [name, phone, userId], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Profile updated!' }); }
   });
@@ -69,7 +102,7 @@ app.put('/users/:userId/profile', (req, res) => {
 app.put('/users/:userId/status', (req, res) => {
   const { userId } = req.params;
   const { is_online } = req.body;
-  db.run(`UPDATE users SET is_online = ? WHERE id = ?`, [is_online, userId], function (err) {
+  db.run(`UPDATE users SET is_online = ? WHERE id = ?`, [is_online, userId], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Status updated!', is_online }); }
   });
@@ -79,7 +112,7 @@ app.put('/users/:userId/status', (req, res) => {
 app.put('/users/:userId/picture', (req, res) => {
   const { userId } = req.params;
   const { profile_picture } = req.body;
-  db.run(`UPDATE users SET profile_picture = ? WHERE id = ?`, [profile_picture, userId], function (err) {
+  db.run(`UPDATE users SET profile_picture = ? WHERE id = ?`, [profile_picture, userId], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Profile picture updated!' }); }
   });
@@ -96,19 +129,19 @@ app.get('/profile/:userId', (req, res) => {
 
 // Upload driver documents
 app.post('/driver/documents', (req, res) => {
-  const { driver_id, license_image, national_id_image, insurance_image, roadworthiness_image } = req.body;
+  const { driver_id, license_front, license_back, national_id_front, national_id_back, insurance_image, roadworthiness_image, face_photo } = req.body;
   db.get(`SELECT id FROM driver_documents WHERE driver_id = ?`, [driver_id], (err, existing) => {
     if (existing) {
-      db.run(`UPDATE driver_documents SET license_image=?, national_id_image=?, insurance_image=?, roadworthiness_image=? WHERE driver_id=?`,
-        [license_image, national_id_image, insurance_image, roadworthiness_image, driver_id], function (err) {
+      db.run(`UPDATE driver_documents SET license_front=?, license_back=?, national_id_front=?, national_id_back=?, insurance_image=?, roadworthiness_image=?, face_photo=?, verified=0, rejection_reason=NULL WHERE driver_id=?`,
+        [license_front, license_back, national_id_front, national_id_back, insurance_image, roadworthiness_image, face_photo, driver_id], function(err) {
           if (err) { res.status(400).json({ error: err.message }); }
-          else { res.json({ message: 'Documents updated!' }); }
+          else { res.json({ message: 'Documents updated! Awaiting admin verification.' }); }
         });
     } else {
-      db.run(`INSERT INTO driver_documents (driver_id, license_image, national_id_image, insurance_image, roadworthiness_image) VALUES (?, ?, ?, ?, ?)`,
-        [driver_id, license_image, national_id_image, insurance_image, roadworthiness_image], function (err) {
+      db.run(`INSERT INTO driver_documents (driver_id, license_front, license_back, national_id_front, national_id_back, insurance_image, roadworthiness_image, face_photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [driver_id, license_front, license_back, national_id_front, national_id_back, insurance_image, roadworthiness_image, face_photo], function(err) {
           if (err) { res.status(400).json({ error: err.message }); }
-          else { res.json({ message: 'Documents uploaded!' }); }
+          else { res.json({ message: 'Documents uploaded! Awaiting admin verification.' }); }
         });
     }
   });
@@ -127,7 +160,7 @@ app.get('/driver/documents/:driverId', (req, res) => {
 app.post('/rides', (req, res) => {
   const { driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price } = req.body;
   db.run(`INSERT INTO rides (driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price || 0], function (err) {
+    [driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price || 0], function(err) {
       if (err) { res.status(400).json({ error: err.message }); }
       else { res.json({ message: 'Ride posted!', rideId: this.lastID }); }
     });
@@ -137,8 +170,7 @@ app.post('/rides', (req, res) => {
 app.get('/rides/match', (req, res) => {
   const { from_lat, from_lng, to_lat, to_lng, from_city, to_city } = req.query;
   if (from_city || to_city) {
-    let query = `SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides 
-    JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`;
+    let query = `SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`;
     const params = [];
     if (from_city) { query += ` AND LOWER(rides.from_location) LIKE LOWER(?)`; params.push(`%${from_city}%`); }
     if (to_city) { query += ` AND LOWER(rides.to_location) LIKE LOWER(?)`; params.push(`%${to_city}%`); }
@@ -172,7 +204,7 @@ app.get('/rides', (req, res) => {
 // Book ride
 app.post('/bookings', (req, res) => {
   const { ride_id, passenger_id } = req.body;
-  db.run(`INSERT INTO bookings (ride_id, passenger_id) VALUES (?, ?)`, [ride_id, passenger_id], function (err) {
+  db.run(`INSERT INTO bookings (ride_id, passenger_id) VALUES (?, ?)`, [ride_id, passenger_id], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
       db.run(`UPDATE rides SET seats_available = seats_available - 1 WHERE id = ?`, [ride_id]);
@@ -202,7 +234,7 @@ app.get('/my-bookings/:userId', (req, res) => {
 // Cancel ride
 app.put('/rides/:rideId/cancel', (req, res) => {
   const { rideId } = req.params;
-  db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function (err) {
+  db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Ride cancelled!' }); }
   });
@@ -233,7 +265,7 @@ app.get('/notifications/:userId', (req, res) => {
 // Messages
 app.post('/messages', (req, res) => {
   const { sender_id, receiver_id, message } = req.body;
-  db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [sender_id, receiver_id, message], function (err) {
+  db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [sender_id, receiver_id, message], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Message sent!', messageId: this.lastID }); }
   });
@@ -258,7 +290,7 @@ app.get('/conversations/:userId', (req, res) => {
 // Ratings
 app.post('/ratings', (req, res) => {
   const { ride_id, passenger_id, driver_id, rating, comment } = req.body;
-  db.run(`INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment) VALUES (?, ?, ?, ?, ?)`, [ride_id, passenger_id, driver_id, rating, comment], function (err) {
+  db.run(`INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment) VALUES (?, ?, ?, ?, ?)`, [ride_id, passenger_id, driver_id, rating, comment], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Rating submitted!', ratingId: this.lastID }); }
   });
@@ -290,16 +322,15 @@ app.get('/earnings/:userId', (req, res) => {
   });
 });
 
-// Submit complaint
+// Complaints
 app.post('/complaints', (req, res) => {
   const { user_id, subject, message } = req.body;
-  db.run(`INSERT INTO complaints (user_id, subject, message) VALUES (?, ?, ?)`, [user_id, subject, message], function (err) {
+  db.run(`INSERT INTO complaints (user_id, subject, message) VALUES (?, ?, ?)`, [user_id, subject, message], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Complaint submitted!', complaintId: this.lastID }); }
   });
 });
 
-// Get complaints
 app.get('/complaints', (req, res) => {
   db.all(`SELECT complaints.*, users.name as user_name, users.role FROM complaints JOIN users ON complaints.user_id = users.id ORDER BY complaints.created_at DESC`, [], (err, complaints) => {
     if (err) { res.status(400).json({ error: err.message }); }
@@ -307,17 +338,16 @@ app.get('/complaints', (req, res) => {
   });
 });
 
-// Update complaint status
 app.put('/complaints/:complaintId', (req, res) => {
   const { complaintId } = req.params;
   const { status } = req.body;
-  db.run(`UPDATE complaints SET status = ? WHERE id = ?`, [status, complaintId], function (err) {
+  db.run(`UPDATE complaints SET status = ? WHERE id = ?`, [status, complaintId], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Complaint updated!' }); }
   });
 });
 
-// Get referrals
+// Referrals
 app.get('/referrals/:userId', (req, res) => {
   const { userId } = req.params;
   db.all(`SELECT referrals.*, users.name as referred_name, users.created_at as joined_at FROM referrals JOIN users ON referrals.referred_id = users.id WHERE referrals.referrer_id = ? ORDER BY referrals.created_at DESC`, [userId], (err, referrals) => {
@@ -333,24 +363,24 @@ app.get('/wallet/:userId', (req, res) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
       db.all(`SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC`, [userId], (err, transactions) => {
-        res.json({ balance: user.wallet_balance, transactions });
+        res.json({ balance: user?.wallet_balance || 0, transactions: transactions || [] });
       });
     }
   });
 });
 
 // Admin routes
-app.get('/admin/rides', (req, res) => {
-  db.all(`SELECT rides.*, users.name as driver_name FROM rides JOIN users ON rides.driver_id = users.id ORDER BY rides.created_at DESC`, [], (err, rides) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ rides }); }
-  });
-});
-
 app.get('/admin/users', (req, res) => {
   db.all(`SELECT id, name, email, role, phone, is_online, wallet_balance, referral_code, created_at FROM users ORDER BY created_at DESC`, [], (err, users) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ users }); }
+  });
+});
+
+app.get('/admin/rides', (req, res) => {
+  db.all(`SELECT rides.*, users.name as driver_name FROM rides JOIN users ON rides.driver_id = users.id ORDER BY rides.created_at DESC`, [], (err, rides) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ rides }); }
   });
 });
 
@@ -362,7 +392,7 @@ app.get('/admin/bookings', (req, res) => {
 });
 
 app.get('/admin/documents', (req, res) => {
-  db.all(`SELECT driver_documents.*, users.name as driver_name FROM driver_documents JOIN users ON driver_documents.driver_id = users.id ORDER BY driver_documents.created_at DESC`, [], (err, documents) => {
+  db.all(`SELECT driver_documents.*, users.name as driver_name, users.email as driver_email FROM driver_documents JOIN users ON driver_documents.driver_id = users.id ORDER BY driver_documents.created_at DESC`, [], (err, documents) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ documents }); }
   });
@@ -370,9 +400,18 @@ app.get('/admin/documents', (req, res) => {
 
 app.put('/admin/documents/:driverId/verify', (req, res) => {
   const { driverId } = req.params;
-  db.run(`UPDATE driver_documents SET verified = 1 WHERE driver_id = ?`, [driverId], function (err) {
+  db.run(`UPDATE driver_documents SET verified = 1, rejection_reason = NULL WHERE driver_id = ?`, [driverId], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Driver verified!' }); }
+  });
+});
+
+app.put('/admin/documents/:driverId/reject', (req, res) => {
+  const { driverId } = req.params;
+  const { reason } = req.body;
+  db.run(`UPDATE driver_documents SET verified = 2, rejection_reason = ? WHERE driver_id = ?`, [reason, driverId], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Driver rejected!' }); }
   });
 });
 
@@ -387,12 +426,13 @@ app.get('/admin/revenue', (req, res) => {
     }
   });
 });
-// Temporary admin setup route
-app.get('/setup-admin/:email', (req, res) => {
-  const { email } = req.params;
-  db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function(err) {
+// Reject driver documents
+app.put('/admin/documents/:driverId/reject', (req, res) => {
+  const { driverId } = req.params;
+  const { reason } = req.body;
+  db.run(`UPDATE driver_documents SET verified = 0, rejection_reason = ? WHERE driver_id = ?`, [reason, driverId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: `Admin role set for ${email}!` }); }
+    else { res.json({ message: 'Documents rejected!' }); }
   });
 });
 app.listen(PORT, '0.0.0.0', () => {
