@@ -436,7 +436,63 @@ db.run(`CREATE TABLE IF NOT EXISTS driver_documents (id INTEGER PRIMARY KEY AUTO
 db.run(`CREATE TABLE IF NOT EXISTS complaints (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, subject TEXT, message TEXT, status TEXT DEFAULT 'open', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER, referred_id INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS wallet_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount REAL, type TEXT, description TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
+// Start trip
+app.put('/bookings/:bookingId/start', (req, res) => {
+  const { bookingId } = req.params;
+  db.run(`UPDATE bookings SET status = 'started' WHERE id = ?`, [bookingId], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Trip started!' }); }
+  });
+});
 
+// End trip
+app.put('/bookings/:bookingId/end', (req, res) => {
+  const { bookingId } = req.params;
+  db.get(`SELECT bookings.*, rides.price, rides.driver_id FROM bookings JOIN rides ON bookings.ride_id = rides.id WHERE bookings.id = ?`, [bookingId], (err, booking) => {
+    if (err || !booking) { res.status(400).json({ error: 'Booking not found' }); }
+    else {
+      const netAmount = booking.price * 0.9;
+      db.run(`UPDATE bookings SET status = 'completed' WHERE id = ?`, [bookingId]);
+      db.run(`UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`, [netAmount, booking.driver_id]);
+      db.run(`INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, 'credit', 'Trip payment received')`, [booking.driver_id, netAmount]);
+      res.json({ message: 'Trip completed! Payment processed.', netAmount });
+    }db.run(`ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'pending'`, () => {});
+  });
+});
+
+// Get active trip for driver
+app.get('/driver/active-trip/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.get(`
+    SELECT bookings.*, rides.from_location, rides.to_location, rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
+    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic
+    FROM bookings
+    JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON bookings.passenger_id = users.id
+    WHERE rides.driver_id = ? AND bookings.status IN ('accepted', 'started')
+    ORDER BY bookings.created_at DESC LIMIT 1
+  `, [userId], (err, trip) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ trip: trip || null }); }
+  });
+});
+
+// Get active trip for rider
+app.get('/rider/active-trip/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.get(`
+    SELECT bookings.*, rides.from_location, rides.to_location, rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
+    users.name as driver_name, users.phone as driver_phone, users.profile_picture as driver_pic, users.is_online as driver_online
+    FROM bookings
+    JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON rides.driver_id = users.id
+    WHERE bookings.passenger_id = ? AND bookings.status IN ('accepted', 'started')
+    ORDER BY bookings.created_at DESC LIMIT 1
+  `, [userId], (err, trip) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ trip: trip || null }); }
+  });
+});
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
