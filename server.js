@@ -168,7 +168,6 @@ app.post('/bookings', (req, res) => {
   });
 });
 
-// Accept booking
 app.put('/bookings/:bookingId/accept', (req, res) => {
   const { bookingId } = req.params;
   db.run(`UPDATE bookings SET status = 'accepted' WHERE id = ?`, [bookingId], function (err) {
@@ -177,7 +176,6 @@ app.put('/bookings/:bookingId/accept', (req, res) => {
   });
 });
 
-// Decline booking
 app.put('/bookings/:bookingId/decline', (req, res) => {
   const { bookingId } = req.params;
   db.get(`SELECT ride_id FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
@@ -190,46 +188,25 @@ app.put('/bookings/:bookingId/decline', (req, res) => {
   });
 });
 
-app.get('/my-rides/:userId', (req, res) => {
-  const { userId } = req.params;
-  db.all(`SELECT rides.*, COUNT(bookings.id) as booking_count FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id WHERE rides.driver_id = ? GROUP BY rides.id ORDER BY rides.created_at DESC`, [userId], (err, rides) => {
+app.put('/bookings/:bookingId/start', (req, res) => {
+  const { bookingId } = req.params;
+  db.run(`UPDATE bookings SET status = 'started' WHERE id = ?`, [bookingId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ rides }); }
+    else { res.json({ message: 'Trip started!' }); }
   });
 });
 
-app.get('/my-bookings/:userId', (req, res) => {
-  const { userId } = req.params;
-  db.all(`SELECT bookings.id, bookings.status as booking_status, rides.from_location, rides.to_location, rides.departure_time, rides.price, rides.driver_id, users.name as driver_name, users.phone as driver_phone FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id WHERE bookings.passenger_id = ? ORDER BY bookings.created_at DESC`, [userId], (err, bookings) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ bookings }); }
-  });
-});
-
-// Get pending booking requests for a driver
-app.get('/driver/requests/:userId', (req, res) => {
-  const { userId } = req.params;
-  const query = `
-    SELECT bookings.id, bookings.status, bookings.created_at,
-    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic,
-    rides.from_location, rides.to_location, rides.price, rides.departure_time
-    FROM bookings
-    JOIN rides ON bookings.ride_id = rides.id
-    JOIN users ON bookings.passenger_id = users.id
-    WHERE rides.driver_id = ? AND bookings.status = 'pending'
-    ORDER BY bookings.created_at DESC
-  `;
-  db.all(query, [userId], (err, requests) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ requests }); }
-  });
-});
-
-app.put('/rides/:rideId/cancel', (req, res) => {
-  const { rideId } = req.params;
-  db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Ride cancelled!' }); }
+app.put('/bookings/:bookingId/end', (req, res) => {
+  const { bookingId } = req.params;
+  db.get(`SELECT bookings.*, rides.price, rides.driver_id FROM bookings JOIN rides ON bookings.ride_id = rides.id WHERE bookings.id = ?`, [bookingId], (err, booking) => {
+    if (err || !booking) { res.status(400).json({ error: 'Booking not found' }); }
+    else {
+      const netAmount = booking.price * 0.9;
+      db.run(`UPDATE bookings SET status = 'completed' WHERE id = ?`, [bookingId]);
+      db.run(`UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`, [netAmount, booking.driver_id]);
+      db.run(`INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, 'credit', 'Trip payment received')`, [booking.driver_id, netAmount]);
+      res.json({ message: 'Trip completed! Payment processed.', netAmount });
+    }
   });
 });
 
@@ -245,6 +222,69 @@ app.put('/bookings/:bookingId/cancel', (req, res) => {
   });
 });
 
+app.get('/my-rides/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`SELECT rides.*, COUNT(bookings.id) as booking_count FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id WHERE rides.driver_id = ? GROUP BY rides.id ORDER BY rides.created_at DESC`, [userId], (err, rides) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ rides }); }
+  });
+});
+
+app.get('/my-bookings/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`SELECT bookings.id, bookings.status as booking_status, rides.from_location, rides.to_location, rides.departure_time, rides.price, rides.driver_id, rides.id as ride_id, users.name as driver_name, users.phone as driver_phone FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id WHERE bookings.passenger_id = ? ORDER BY bookings.created_at DESC`, [userId], (err, bookings) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ bookings }); }
+  });
+});
+
+app.get('/driver/requests/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`
+    SELECT bookings.id, bookings.status, bookings.created_at,
+    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic,
+    rides.from_location, rides.to_location, rides.price, rides.departure_time
+    FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id
+    WHERE rides.driver_id = ? AND bookings.status = 'pending'
+    ORDER BY bookings.created_at DESC
+  `, [userId], (err, requests) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ requests }); }
+  });
+});
+
+app.get('/driver/active-trip/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.get(`
+    SELECT bookings.id, bookings.status, rides.from_location, rides.to_location,
+    rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
+    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic,
+    users.id as passenger_id
+    FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id
+    WHERE rides.driver_id = ? AND bookings.status IN ('accepted','started')
+    ORDER BY bookings.created_at DESC LIMIT 1
+  `, [userId], (err, trip) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ trip: trip || null }); }
+  });
+});
+
+app.get('/rider/active-trip/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.get(`
+    SELECT bookings.id, bookings.status, rides.from_location, rides.to_location,
+    rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
+    users.name as driver_name, users.phone as driver_phone, users.profile_picture as driver_pic,
+    users.id as driver_id
+    FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id
+    WHERE bookings.passenger_id = ? AND bookings.status IN ('accepted','started')
+    ORDER BY bookings.created_at DESC LIMIT 1
+  `, [userId], (err, trip) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ trip: trip || null }); }
+  });
+});
+
 app.get('/notifications/:userId', (req, res) => {
   const { userId } = req.params;
   db.all(`SELECT bookings.id, bookings.status, bookings.created_at, users.name as passenger_name, rides.from_location, rides.to_location FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id WHERE rides.driver_id = ? ORDER BY bookings.created_at DESC`, [userId], (err, notifications) => {
@@ -253,59 +293,120 @@ app.get('/notifications/:userId', (req, res) => {
   });
 });
 
+// MESSAGES - Send
 app.post('/messages', (req, res) => {
   const { sender_id, receiver_id, message } = req.body;
-  db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [sender_id, receiver_id, message], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Message sent!', messageId: this.lastID }); }
-  });
+  if (!sender_id || !receiver_id || !message) {
+    return res.status(400).json({ error: 'sender_id, receiver_id and message are required' });
+  }
+  db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`,
+    [sender_id, receiver_id, message], function (err) {
+      if (err) { res.status(400).json({ error: err.message }); }
+      else { res.json({ message: 'Message sent!', messageId: this.lastID }); }
+    });
 });
 
+// MESSAGES - Get between two users
 app.get('/messages/:userId/:otherUserId', (req, res) => {
   const { userId, otherUserId } = req.params;
-  db.all(`SELECT messages.*, users.name as sender_name FROM messages JOIN users ON messages.sender_id = users.id WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY messages.created_at ASC`, [userId, otherUserId, otherUserId, userId], (err, messages) => {
+  db.all(`
+    SELECT messages.*, users.name as sender_name
+    FROM messages
+    JOIN users ON messages.sender_id = users.id
+    WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+    ORDER BY messages.created_at ASC
+  `, [userId, otherUserId, otherUserId, userId], (err, messages) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ messages }); }
   });
 });
 
+// CONVERSATIONS - Get all conversations for a user
 app.get('/conversations/:userId', (req, res) => {
   const { userId } = req.params;
-  db.all(`SELECT DISTINCT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_user_id, users.name as other_user_name, messages.message as last_message, messages.created_at FROM messages JOIN users ON users.id = CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END WHERE sender_id = ? OR receiver_id = ? GROUP BY other_user_id ORDER BY messages.created_at DESC`, [userId, userId, userId, userId], (err, conversations) => {
+  db.all(`
+    SELECT
+      CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_user_id,
+      users.name as other_user_name,
+      users.profile_picture as other_user_pic,
+      messages.message as last_message,
+      messages.created_at
+    FROM messages
+    JOIN users ON users.id = CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
+    WHERE sender_id = ? OR receiver_id = ?
+    GROUP BY other_user_id
+    ORDER BY messages.created_at DESC
+  `, [userId, userId, userId, userId], (err, conversations) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ conversations }); }
   });
 });
 
+// RATINGS - Submit (works for both driver rating rider and rider rating driver)
 app.post('/ratings', (req, res) => {
-  const { ride_id, passenger_id, driver_id, rating, comment } = req.body;
-  db.run(`INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment) VALUES (?, ?, ?, ?, ?)`, [ride_id, passenger_id, driver_id, rating, comment], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Rating submitted!', ratingId: this.lastID }); }
-  });
+  const { ride_id, rater_id, rated_id, rating, comment, rater_role } = req.body;
+  db.run(`INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment, rater_role)
+    VALUES (?, ?, ?, ?, ?, ?)`,
+    [ride_id, rater_id, rated_id, rating, comment, rater_role || 'rider'],
+    function (err) {
+      if (err) { res.status(400).json({ error: err.message }); }
+      else { res.json({ message: 'Rating submitted!', ratingId: this.lastID }); }
+    });
 });
 
-app.get('/ratings/:driverId', (req, res) => {
-  const { driverId } = req.params;
-  db.all(`SELECT ratings.*, users.name as passenger_name FROM ratings JOIN users ON ratings.passenger_id = users.id WHERE ratings.driver_id = ? ORDER BY ratings.created_at DESC`, [driverId], (err, ratings) => {
+// RATINGS - Get ratings for a user
+app.get('/ratings/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`
+    SELECT ratings.*, users.name as rater_name
+    FROM ratings
+    JOIN users ON users.id = ratings.passenger_id
+    WHERE ratings.driver_id = ? OR ratings.passenger_id = ?
+    ORDER BY ratings.created_at DESC
+  `, [userId, userId], (err, ratings) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
-      const avgRating = ratings.length > 0 ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(1) : 0;
+      const avgRating = ratings.length > 0
+        ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(1)
+        : 0;
       res.json({ ratings, avgRating });
     }
   });
 });
 
+// Get completed bookings for a driver to rate passengers
+app.get('/driver/completed-trips/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`
+    SELECT bookings.id, bookings.status, rides.from_location, rides.to_location, rides.price,
+    users.name as passenger_name, users.id as passenger_id, users.profile_picture as passenger_pic
+    FROM bookings
+    JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON bookings.passenger_id = users.id
+    WHERE rides.driver_id = ? AND bookings.status = 'completed'
+    ORDER BY bookings.created_at DESC
+  `, [userId], (err, trips) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ trips }); }
+  });
+});
+
 app.get('/earnings/:userId', (req, res) => {
   const { userId } = req.params;
-  db.all(`SELECT rides.id, rides.from_location, rides.to_location, rides.departure_time, rides.price, COUNT(bookings.id) as passengers, (rides.price * COUNT(bookings.id)) as gross_earned, (rides.price * COUNT(bookings.id) * 0.9) as net_earned, (rides.price * COUNT(bookings.id) * 0.1) as commission FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id WHERE rides.driver_id = ? AND rides.status != 'cancelled' GROUP BY rides.id ORDER BY rides.created_at DESC`, [userId], (err, earnings) => {
+  db.all(`SELECT rides.id, rides.from_location, rides.to_location, rides.departure_time, rides.price,
+    COUNT(bookings.id) as passengers,
+    (rides.price * COUNT(bookings.id)) as gross_earned,
+    (rides.price * COUNT(bookings.id) * 0.9) as net_earned,
+    (rides.price * COUNT(bookings.id) * 0.1) as commission
+    FROM rides LEFT JOIN bookings ON rides.id = bookings.ride_id
+    WHERE rides.driver_id = ? AND rides.status != 'cancelled'
+    GROUP BY rides.id ORDER BY rides.created_at DESC`, [userId], (err, earnings) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
-      const totalGross = earnings.reduce((sum, e) => sum + (e.gross_earned || 0), 0);
       const totalNet = earnings.reduce((sum, e) => sum + (e.net_earned || 0), 0);
       const totalCommission = earnings.reduce((sum, e) => sum + (e.commission || 0), 0);
       const totalPassengers = earnings.reduce((sum, e) => sum + (e.passengers || 0), 0);
-      res.json({ earnings, totalGross, totalNet, totalCommission, totalPassengers });
+      res.json({ earnings, totalNet, totalCommission, totalPassengers });
     }
   });
 });
@@ -348,7 +449,7 @@ app.get('/wallet/:userId', (req, res) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
       db.all(`SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC`, [userId], (err, transactions) => {
-        res.json({ balance: user.wallet_balance, transactions: transactions || [] });
+        res.json({ balance: user?.wallet_balance || 0, transactions: transactions || [] });
       });
     }
   });
@@ -419,6 +520,7 @@ app.get('/setup-admin/:email', (req, res) => {
   });
 });
 
+// Migrations
 db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'rider'`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN profile_picture TEXT DEFAULT NULL`, () => {});
@@ -426,77 +528,25 @@ db.run(`ALTER TABLE users ADD COLUMN is_online INTEGER DEFAULT 0`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN wallet_balance REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE rides ADD COLUMN price REAL DEFAULT 0`, () => {});
+db.run(`ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'pending'`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN license_front TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN license_back TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN national_id_front TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN national_id_back TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN face_photo TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN rejection_reason TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE ratings ADD COLUMN rater_role TEXT DEFAULT 'rider'`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS driver_documents (id INTEGER PRIMARY KEY AUTOINCREMENT, driver_id INTEGER, license_front TEXT, license_back TEXT, national_id_front TEXT, national_id_back TEXT, insurance_image TEXT, roadworthiness_image TEXT, face_photo TEXT, verified INTEGER DEFAULT 0, rejection_reason TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS complaints (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, subject TEXT, message TEXT, status TEXT DEFAULT 'open', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER, referred_id INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS wallet_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount REAL, type TEXT, description TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
-// Start trip
-app.put('/bookings/:bookingId/start', (req, res) => {
-  const { bookingId } = req.params;
-  db.run(`UPDATE bookings SET status = 'started' WHERE id = ?`, [bookingId], function(err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Trip started!' }); }
-  });
-});
+db.run(`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER, receiver_id INTEGER, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
+db.run(`CREATE TABLE IF NOT EXISTS ratings (id INTEGER PRIMARY KEY AUTOINCREMENT, ride_id INTEGER, passenger_id INTEGER, driver_id INTEGER, rating INTEGER, comment TEXT, rater_role TEXT DEFAULT 'rider', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 
-// End trip
-app.put('/bookings/:bookingId/end', (req, res) => {
-  const { bookingId } = req.params;
-  db.get(`SELECT bookings.*, rides.price, rides.driver_id FROM bookings JOIN rides ON bookings.ride_id = rides.id WHERE bookings.id = ?`, [bookingId], (err, booking) => {
-    if (err || !booking) { res.status(400).json({ error: 'Booking not found' }); }
-    else {
-      const netAmount = booking.price * 0.9;
-      db.run(`UPDATE bookings SET status = 'completed' WHERE id = ?`, [bookingId]);
-      db.run(`UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`, [netAmount, booking.driver_id]);
-      db.run(`INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, 'credit', 'Trip payment received')`, [booking.driver_id, netAmount]);
-      res.json({ message: 'Trip completed! Payment processed.', netAmount });
-    }db.run(`ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'pending'`, () => {});
-  });
-});
-
-// Get active trip for driver
-app.get('/driver/active-trip/:userId', (req, res) => {
-  const { userId } = req.params;
-  db.get(`
-    SELECT bookings.*, rides.from_location, rides.to_location, rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
-    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic
-    FROM bookings
-    JOIN rides ON bookings.ride_id = rides.id
-    JOIN users ON bookings.passenger_id = users.id
-    WHERE rides.driver_id = ? AND bookings.status IN ('accepted', 'started')
-    ORDER BY bookings.created_at DESC LIMIT 1
-  `, [userId], (err, trip) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ trip: trip || null }); }
-  });
-});
-
-// Get active trip for rider
-app.get('/rider/active-trip/:userId', (req, res) => {
-  const { userId } = req.params;
-  db.get(`
-    SELECT bookings.*, rides.from_location, rides.to_location, rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
-    users.name as driver_name, users.phone as driver_phone, users.profile_picture as driver_pic, users.is_online as driver_online
-    FROM bookings
-    JOIN rides ON bookings.ride_id = rides.id
-    JOIN users ON rides.driver_id = users.id
-    WHERE bookings.passenger_id = ? AND bookings.status IN ('accepted', 'started')
-    ORDER BY bookings.created_at DESC LIMIT 1
-  `, [userId], (err, trip) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ trip: trip || null }); }
-  });
-});
-// Always restore admin role on startup
+// Always restore admin
 setTimeout(() => {
   db.run(`UPDATE users SET role = 'admin' WHERE email = 'homatekpor@gmail.com'`, () => {
-    console.log('Admin role restored for homatekpor@gmail.com');
+    console.log('Admin role restored');
   });
 }, 2000);
 
