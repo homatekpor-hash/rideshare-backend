@@ -63,6 +63,14 @@ app.get('/reset-password/:email/:newPassword', (req, res) => {
 
 app.put('/users/:userId/profile', (req, res) => {
   const { userId } = req.params;
+  const { name, phone, vehicle_number, vehicle_model, vehicle_color } = req.body;
+  db.run(`UPDATE users SET name = ?, phone = ?, vehicle_number = ?, vehicle_model = ?, vehicle_color = ? WHERE id = ?`,
+    [name, phone, vehicle_number, vehicle_model, vehicle_color, userId], function (err) {
+      if (err) { res.status(400).json({ error: err.message }); }
+      else { res.json({ message: 'Profile updated!' }); }
+    });
+});', (req, res) => {
+  const { userId } = req.params;
   const { name, phone } = req.body;
   db.run(`UPDATE users SET name = ?, phone = ? WHERE id = ?`, [name, phone, userId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
@@ -89,6 +97,12 @@ app.put('/users/:userId/picture', (req, res) => {
 });
 
 app.get('/profile/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.get(`SELECT id, name, email, role, phone, profile_picture, is_online, wallet_balance, referral_code, vehicle_number, vehicle_model, vehicle_color, created_at FROM users WHERE id = ?`, [userId], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'User not found' }); }
+    else { res.json({ user }); }
+  });
+});, (req, res) => {
   const { userId } = req.params;
   db.get(`SELECT id, name, email, role, phone, profile_picture, is_online, wallet_balance, referral_code, created_at FROM users WHERE id = ?`, [userId], (err, user) => {
     if (err || !user) { res.status(400).json({ error: 'User not found' }); }
@@ -185,7 +199,7 @@ app.get('/rides/match', (req, res) => {
     return false;
   };
 
-  db.all(`SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`, [], (err, rides) => {
+  db.all(`SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online, users.vehicle_number, users.vehicle_model, users.vehicle_color FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`, [], ...
     if (err) { res.status(400).json({ error: err.message }); }
     else {
       const matches = rides.filter(ride => {
@@ -626,7 +640,9 @@ setTimeout(() => {
     console.log('Admin role restored for homatekpor@gmail.com');
   });
 }, 2000);
-
+db.run(`ALTER TABLE users ADD COLUMN vehicle_number TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN vehicle_model TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN vehicle_color TEXT DEFAULT NULL`, () => {});
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
