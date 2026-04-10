@@ -132,7 +132,68 @@ app.post('/rides', (req, res) => {
     });
 });
 
-app.get('/rides/match', (req, res) => {
+app.get('app.get('/rides/match', (req, res) => {
+  const { from_city, to_city } = req.query;
+
+  // Ghana road corridors - stops along major routes
+  const corridors = [
+    ['accra', 'odorkor', 'darkuman', 'mallam junction', 'kaneshie', 'weija', 'weija junction', 'kasoa', 'budumburam'],
+    ['accra', 'achimota', 'ofankor', 'pokuase', 'amasaman', 'nsawam'],
+    ['accra', 'madina', 'adenta', 'oyibi', 'aburi', 'koforidua'],
+    ['accra', 'spintex', 'tema', 'ashaiman', 'juapong'],
+    ['accra', 'lapaz', 'tantra hill', 'ofankor', 'kumasi'],
+    ['accra', 'circle', 'achimota', 'kumasi'],
+    ['accra', 'teshie', 'nungua', 'community 1', 'tema'],
+    ['accra', 'adabraka', 'north kaneshie', 'kaneshie', 'kasoa'],
+    ['kasoa', 'weija junction', 'weija', 'darkuman', 'mallam junction', 'kaneshie', 'accra'],
+    ['kumasi', 'ejisu', 'konongo', 'cape coast', 'takoradi'],
+    ['accra', 'cape coast', 'takoradi'],
+    ['accra', 'winneba', 'cape coast'],
+  ];
+
+  const normalize = (str) => str?.toLowerCase().trim() || '';
+
+  const isOnSameCorridor = (from, to, rideFrom, rideTo) => {
+    const fromN = normalize(from);
+    const toN = normalize(to);
+    const rideFromN = normalize(rideFrom);
+    const rideToN = normalize(rideTo);
+
+    for (const corridor of corridors) {
+      const rideFromIdx = corridor.findIndex(s => rideFromN.includes(s) || s.includes(rideFromN));
+      const rideToIdx = corridor.findIndex(s => rideToN.includes(s) || s.includes(rideToN));
+      const fromIdx = corridor.findIndex(s => fromN.includes(s) || s.includes(fromN));
+      const toIdx = corridor.findIndex(s => toN.includes(s) || s.includes(toN));
+
+      if (rideFromIdx !== -1 && rideToIdx !== -1 && fromIdx !== -1 && toIdx !== -1) {
+        const minRide = Math.min(rideFromIdx, rideToIdx);
+        const maxRide = Math.max(rideFromIdx, rideToIdx);
+        if (fromIdx >= minRide && toIdx <= maxRide) return true;
+      }
+    }
+    return false;
+  };
+
+  db.all(`SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`, [], (err, rides) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      let matches = rides.filter(ride => {
+        // Exact or partial city match
+        const fromMatch = !from_city || normalize(ride.from_location).includes(normalize(from_city)) || normalize(from_city).includes(normalize(ride.from_location));
+        const toMatch = !to_city || normalize(ride.to_location).includes(normalize(to_city)) || normalize(to_city).includes(normalize(ride.to_location));
+        if (fromMatch && toMatch) return true;
+
+        // Corridor match - rider's stop is along driver's route
+        if (from_city && to_city) {
+          return isOnSameCorridor(from_city, to_city, ride.from_location, ride.to_location);
+        }
+        return false;
+      });
+
+      res.json({ matches });
+    }
+  });
+});', (req, res) => {
   const { from_lat, from_lng, to_lat, to_lng, from_city, to_city } = req.query;
   if (from_city || to_city) {
     let query = `SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`;
