@@ -172,6 +172,21 @@ app.put('/bookings/:bookingId/accept', (req, res) => {
   const { bookingId } = req.params;
   db.run(`UPDATE bookings SET status = 'accepted' WHERE id = ?`, [bookingId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      // Auto message from driver to rider
+      db.get(`SELECT bookings.*, rides.from_location, rides.to_location, rides.driver_id, users.name as driver_name FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id WHERE bookings.id = ?`, [bookingId], (err, booking) => {
+        if (booking) {
+          const autoMsg = `Hello! I have accepted your booking. I will pick you up at ${booking.from_location}. Please be ready! 🚗`;
+          db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [booking.driver_id, booking.passenger_id, autoMsg]);
+        }
+      });
+      res.json({ message: 'Booking accepted!' });
+    }
+  });
+});, (req, res) => {
+  const { bookingId } = req.params;
+  db.run(`UPDATE bookings SET status = 'accepted' WHERE id = ?`, [bookingId], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Booking accepted!' }); }
   });
 });
@@ -189,6 +204,20 @@ app.put('/bookings/:bookingId/decline', (req, res) => {
 });
 
 app.put('/bookings/:bookingId/start', (req, res) => {
+  const { bookingId } = req.params;
+  db.run(`UPDATE bookings SET status = 'started' WHERE id = ?`, [bookingId], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      db.get(`SELECT bookings.*, rides.from_location, rides.to_location, rides.driver_id FROM bookings JOIN rides ON bookings.ride_id = rides.id WHERE bookings.id = ?`, [bookingId], (err, booking) => {
+        if (booking) {
+          const autoMsg = `Your trip has started! We are now heading to ${booking.to_location}. Sit back and enjoy the ride! 🛣️`;
+          db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [booking.driver_id, booking.passenger_id, autoMsg]);
+        }
+      });
+      res.json({ message: 'Trip started!' });
+    }
+  });
+}); (req, res) => {
   const { bookingId } = req.params;
   db.run(`UPDATE bookings SET status = 'started' WHERE id = ?`, [bookingId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
