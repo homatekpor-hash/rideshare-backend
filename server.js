@@ -578,7 +578,13 @@ setTimeout(() => {
     console.log('Admin role restored');
   });
 }, 2000);
-
+app.get('/reset-password/:email/:newPassword', (req, res) => {
+  const { email, newPassword } = req.params;
+  db.run(`UPDATE users SET password = ? WHERE email = ?`, [newPassword, email], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: `Password reset for ${email}!` }); }
+  });
+});
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
