@@ -124,40 +124,41 @@ app.get('/driver/documents/:driverId', (req, res) => {
 });
 
 app.post('/rides', (req, res) => {
-  const { driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price } = req.body;
-  db.run(`INSERT INTO rides (driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price || 0], function (err) {
+  const { driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price, waypoints, full_route } = req.body;
+  db.run(`INSERT INTO rides (driver_id, from_location, to_location, from_lat, from_lng, to_lat, to_lng, seats_available, departure_time, price, waypoints, full_route) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [driver_id, from_location, to_location, from_lat || 5.6037, from_lng || -0.1870, to_lat || 5.6037, to_lng || -0.1870, seats_available, departure_time, price || 0, waypoints || '', full_route || ''], function (err) {
       if (err) { res.status(400).json({ error: err.message }); }
       else { res.json({ message: 'Ride posted!', rideId: this.lastID }); }
     });
 });
 
-app.get('app.get('/rides/match', (req, res) => {
+app.get('/rides/match', (req, res) => {
   const { from_city, to_city } = req.query;
 
-  // Ghana road corridors - stops along major routes
   const corridors = [
-    ['accra', 'odorkor', 'darkuman', 'mallam junction', 'kaneshie', 'weija', 'weija junction', 'kasoa', 'budumburam'],
-    ['accra', 'achimota', 'ofankor', 'pokuase', 'amasaman', 'nsawam'],
+    ['accra', 'odorkor', 'darkuman', 'mallam junction', 'kaneshie', 'north kaneshie', 'weija', 'weija junction', 'kasoa', 'budumburam', 'winneba'],
+    ['accra', 'achimota', 'lapaz', 'tantra hill', 'ofankor', 'pokuase', 'amasaman', 'nsawam'],
     ['accra', 'madina', 'adenta', 'oyibi', 'aburi', 'koforidua'],
-    ['accra', 'spintex', 'tema', 'ashaiman', 'juapong'],
-    ['accra', 'lapaz', 'tantra hill', 'ofankor', 'kumasi'],
-    ['accra', 'circle', 'achimota', 'kumasi'],
-    ['accra', 'teshie', 'nungua', 'community 1', 'tema'],
-    ['accra', 'adabraka', 'north kaneshie', 'kaneshie', 'kasoa'],
-    ['kasoa', 'weija junction', 'weija', 'darkuman', 'mallam junction', 'kaneshie', 'accra'],
+    ['accra', 'spintex', 'teshie', 'nungua', 'community 1', 'tema', 'ashaiman'],
+    ['accra', 'circle', 'achimota', 'ofankor', 'kumasi'],
+    ['accra', 'adabraka', 'tudu', 'makola', 'agbogbloshie', 'kaneshie'],
+    ['accra', 'osu', 'labone', 'airport', 'east legon', 'legon', 'haatso', 'taifa', 'dome', 'kwabenya'],
+    ['accra', 'dansoman', 'mamprobi', 'korle bu', 'kaneshie'],
     ['kumasi', 'ejisu', 'konongo', 'cape coast', 'takoradi'],
     ['accra', 'cape coast', 'takoradi'],
     ['accra', 'winneba', 'cape coast'],
+    ['kaneshie', 'mallam junction', 'odorkor', 'darkuman', 'lapaz', 'achimota', 'accra'],
+    ['kasoa', 'weija junction', 'weija', 'darkuman', 'mallam junction', 'kaneshie', 'accra'],
   ];
 
   const normalize = (str) => str?.toLowerCase().trim() || '';
 
-  const isOnSameCorridor = (from, to, rideFrom, rideTo) => {
+  const isOnSameCorridor = (from, to, rideFrom, rideTo, rideWaypoints) => {
     const fromN = normalize(from);
     const toN = normalize(to);
     const rideFromN = normalize(rideFrom);
     const rideToN = normalize(rideTo);
+    const waypointList = (rideWaypoints || '').split(',').map(w => normalize(w.trim())).filter(w => w);
 
     for (const corridor of corridors) {
       const rideFromIdx = corridor.findIndex(s => rideFromN.includes(s) || s.includes(rideFromN));
@@ -170,6 +171,16 @@ app.get('app.get('/rides/match', (req, res) => {
         const maxRide = Math.max(rideFromIdx, rideToIdx);
         if (fromIdx >= minRide && toIdx <= maxRide) return true;
       }
+
+      // Check waypoints
+      for (const wp of waypointList) {
+        const wpIdx = corridor.findIndex(s => wp.includes(s) || s.includes(wp));
+        if (wpIdx !== -1 && fromIdx !== -1) {
+          const minRide2 = Math.min(rideFromIdx !== -1 ? rideFromIdx : wpIdx, wpIdx);
+          const maxRide2 = Math.max(rideToIdx !== -1 ? rideToIdx : wpIdx, wpIdx);
+          if (fromIdx >= minRide2 && (toIdx === -1 || toIdx <= maxRide2)) return true;
+        }
+      }
     }
     return false;
   };
@@ -177,44 +188,24 @@ app.get('app.get('/rides/match', (req, res) => {
   db.all(`SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`, [], (err, rides) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
-      let matches = rides.filter(ride => {
-        // Exact or partial city match
-        const fromMatch = !from_city || normalize(ride.from_location).includes(normalize(from_city)) || normalize(from_city).includes(normalize(ride.from_location));
-        const toMatch = !to_city || normalize(ride.to_location).includes(normalize(to_city)) || normalize(to_city).includes(normalize(ride.to_location));
+      const matches = rides.filter(ride => {
+        const fromN = normalize(from_city);
+        const toN = normalize(to_city);
+        const rideFromN = normalize(ride.from_location);
+        const rideToN = normalize(ride.to_location);
+
+        // Direct match
+        const fromMatch = !from_city || rideFromN.includes(fromN) || fromN.includes(rideFromN);
+        const toMatch = !to_city || rideToN.includes(toN) || toN.includes(rideToN);
         if (fromMatch && toMatch) return true;
 
-        // Corridor match - rider's stop is along driver's route
-        if (from_city && to_city) {
-          return isOnSameCorridor(from_city, to_city, ride.from_location, ride.to_location);
+        // Corridor match
+        if (from_city || to_city) {
+          return isOnSameCorridor(from_city, to_city, ride.from_location, ride.to_location, ride.waypoints);
         }
         return false;
       });
-
       res.json({ matches });
-    }
-  });
-});', (req, res) => {
-  const { from_lat, from_lng, to_lat, to_lng, from_city, to_city } = req.query;
-  if (from_city || to_city) {
-    let query = `SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`;
-    const params = [];
-    if (from_city) { query += ` AND LOWER(rides.from_location) LIKE LOWER(?)`; params.push(`%${from_city}%`); }
-    if (to_city) { query += ` AND LOWER(rides.to_location) LIKE LOWER(?)`; params.push(`%${to_city}%`); }
-    db.all(query, params, (err, rides) => {
-      if (err) { res.status(400).json({ error: err.message }); }
-      else { res.json({ matches: rides }); }
-    });
-    return;
-  }
-  const passengerAngle = Math.atan2(to_lat - from_lat, to_lng - from_lng);
-  db.all(`SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`, [], (err, rides) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else {
-      const matchedRides = rides.filter(ride => {
-        const rideAngle = Math.atan2(ride.to_lat - ride.from_lat, ride.to_lng - ride.from_lng);
-        return Math.abs(passengerAngle - rideAngle) < 0.5;
-      });
-      res.json({ matches: matchedRides });
     }
   });
 });
@@ -329,9 +320,11 @@ app.get('/driver/requests/:userId', (req, res) => {
   const { userId } = req.params;
   db.all(`
     SELECT bookings.id, bookings.status, bookings.created_at,
-    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic, users.id as passenger_id,
+    users.name as passenger_name, users.phone as passenger_phone,
+    users.profile_picture as passenger_pic, users.id as passenger_id,
     rides.from_location, rides.to_location, rides.price, rides.departure_time
-    FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id
+    FROM bookings JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON bookings.passenger_id = users.id
     WHERE rides.driver_id = ? AND bookings.status = 'pending'
     ORDER BY bookings.created_at DESC
   `, [userId], (err, requests) => {
@@ -343,10 +336,12 @@ app.get('/driver/requests/:userId', (req, res) => {
 app.get('/driver/active-trip/:userId', (req, res) => {
   const { userId } = req.params;
   db.get(`
-    SELECT bookings.id, bookings.status, rides.from_location, rides.to_location,
-    rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
-    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic, users.id as passenger_id
-    FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id
+    SELECT bookings.id, bookings.status,
+    rides.from_location, rides.to_location, rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
+    users.name as passenger_name, users.phone as passenger_phone,
+    users.profile_picture as passenger_pic, users.id as passenger_id
+    FROM bookings JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON bookings.passenger_id = users.id
     WHERE rides.driver_id = ? AND bookings.status IN ('accepted','started')
     ORDER BY bookings.created_at DESC LIMIT 1
   `, [userId], (err, trip) => {
@@ -358,10 +353,12 @@ app.get('/driver/active-trip/:userId', (req, res) => {
 app.get('/rider/active-trip/:userId', (req, res) => {
   const { userId } = req.params;
   db.get(`
-    SELECT bookings.id, bookings.status, rides.from_location, rides.to_location,
-    rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
-    users.name as driver_name, users.phone as driver_phone, users.profile_picture as driver_pic, users.id as driver_id
-    FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id
+    SELECT bookings.id, bookings.status,
+    rides.from_location, rides.to_location, rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
+    users.name as driver_name, users.phone as driver_phone,
+    users.profile_picture as driver_pic, users.id as driver_id
+    FROM bookings JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON rides.driver_id = users.id
     WHERE bookings.passenger_id = ? AND bookings.status IN ('accepted','started')
     ORDER BY bookings.created_at DESC LIMIT 1
   `, [userId], (err, trip) => {
@@ -375,7 +372,8 @@ app.get('/driver/completed-trips/:userId', (req, res) => {
   db.all(`
     SELECT bookings.id, bookings.status, rides.from_location, rides.to_location, rides.price,
     users.name as passenger_name, users.id as passenger_id, users.profile_picture as passenger_pic
-    FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id
+    FROM bookings JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON bookings.passenger_id = users.id
     WHERE rides.driver_id = ? AND bookings.status = 'completed'
     ORDER BY bookings.created_at DESC
   `, [userId], (err, trips) => {
@@ -582,14 +580,6 @@ app.get('/admin/revenue', (req, res) => {
   });
 });
 
-app.get('/rides/:rideId/cancel', (req, res) => {
-  const { rideId } = req.params;
-  db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Ride cancelled!' }); }
-  });
-});
-
 app.put('/rides/:rideId/cancel', (req, res) => {
   const { rideId } = req.params;
   db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function (err) {
@@ -614,6 +604,8 @@ db.run(`ALTER TABLE users ADD COLUMN is_online INTEGER DEFAULT 0`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN wallet_balance REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE rides ADD COLUMN price REAL DEFAULT 0`, () => {});
+db.run(`ALTER TABLE rides ADD COLUMN waypoints TEXT DEFAULT ''`, () => {});
+db.run(`ALTER TABLE rides ADD COLUMN full_route TEXT DEFAULT ''`, () => {});
 db.run(`ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'pending'`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN license_front TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN license_back TEXT DEFAULT NULL`, () => {});
@@ -629,10 +621,9 @@ db.run(`CREATE TABLE IF NOT EXISTS wallet_transactions (id INTEGER PRIMARY KEY A
 db.run(`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER, receiver_id INTEGER, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS ratings (id INTEGER PRIMARY KEY AUTOINCREMENT, ride_id INTEGER, passenger_id INTEGER, driver_id INTEGER, rating INTEGER, comment TEXT, rater_role TEXT DEFAULT 'rider', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 
-// Always restore admin
 setTimeout(() => {
   db.run(`UPDATE users SET role = 'admin' WHERE email = 'homatekpor@gmail.com'`, () => {
-    console.log('Admin role restored');
+    console.log('Admin role restored for homatekpor@gmail.com');
   });
 }, 2000);
 
