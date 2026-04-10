@@ -53,6 +53,14 @@ app.post('/login', (req, res) => {
   });
 });
 
+app.get('/reset-password/:email/:newPassword', (req, res) => {
+  const { email, newPassword } = req.params;
+  db.run(`UPDATE users SET password = ? WHERE email = ?`, [newPassword, email], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: `Password reset for ${email}!` }); }
+  });
+});
+
 app.put('/users/:userId/profile', (req, res) => {
   const { userId } = req.params;
   const { name, phone } = req.body;
@@ -173,7 +181,6 @@ app.put('/bookings/:bookingId/accept', (req, res) => {
   db.run(`UPDATE bookings SET status = 'accepted' WHERE id = ?`, [bookingId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
-      // Auto message from driver to rider
       db.get(`SELECT bookings.*, rides.from_location, rides.to_location, rides.driver_id, users.name as driver_name FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id WHERE bookings.id = ?`, [bookingId], (err, booking) => {
         if (booking) {
           const autoMsg = `Hello! I have accepted your booking. I will pick you up at ${booking.from_location}. Please be ready! 🚗`;
@@ -182,12 +189,6 @@ app.put('/bookings/:bookingId/accept', (req, res) => {
       });
       res.json({ message: 'Booking accepted!' });
     }
-  });
-});, (req, res) => {
-  const { bookingId } = req.params;
-  db.run(`UPDATE bookings SET status = 'accepted' WHERE id = ?`, [bookingId], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Booking accepted!' }); }
   });
 });
 
@@ -217,23 +218,19 @@ app.put('/bookings/:bookingId/start', (req, res) => {
       res.json({ message: 'Trip started!' });
     }
   });
-}); (req, res) => {
-  const { bookingId } = req.params;
-  db.run(`UPDATE bookings SET status = 'started' WHERE id = ?`, [bookingId], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Trip started!' }); }
-  });
 });
 
 app.put('/bookings/:bookingId/end', (req, res) => {
   const { bookingId } = req.params;
-  db.get(`SELECT bookings.*, rides.price, rides.driver_id FROM bookings JOIN rides ON bookings.ride_id = rides.id WHERE bookings.id = ?`, [bookingId], (err, booking) => {
+  db.get(`SELECT bookings.*, rides.price, rides.driver_id, rides.to_location FROM bookings JOIN rides ON bookings.ride_id = rides.id WHERE bookings.id = ?`, [bookingId], (err, booking) => {
     if (err || !booking) { res.status(400).json({ error: 'Booking not found' }); }
     else {
       const netAmount = booking.price * 0.9;
       db.run(`UPDATE bookings SET status = 'completed' WHERE id = ?`, [bookingId]);
       db.run(`UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`, [netAmount, booking.driver_id]);
       db.run(`INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, 'credit', 'Trip payment received')`, [booking.driver_id, netAmount]);
+      const autoMsg = `We have arrived at ${booking.to_location}! Thank you for riding with us. Please rate your experience. Have a great day! 🎉`;
+      db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [booking.driver_id, booking.passenger_id, autoMsg]);
       res.json({ message: 'Trip completed! Payment processed.', netAmount });
     }
   });
@@ -271,7 +268,7 @@ app.get('/driver/requests/:userId', (req, res) => {
   const { userId } = req.params;
   db.all(`
     SELECT bookings.id, bookings.status, bookings.created_at,
-    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic,
+    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic, users.id as passenger_id,
     rides.from_location, rides.to_location, rides.price, rides.departure_time
     FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id
     WHERE rides.driver_id = ? AND bookings.status = 'pending'
@@ -287,8 +284,7 @@ app.get('/driver/active-trip/:userId', (req, res) => {
   db.get(`
     SELECT bookings.id, bookings.status, rides.from_location, rides.to_location,
     rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
-    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic,
-    users.id as passenger_id
+    users.name as passenger_name, users.phone as passenger_phone, users.profile_picture as passenger_pic, users.id as passenger_id
     FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id
     WHERE rides.driver_id = ? AND bookings.status IN ('accepted','started')
     ORDER BY bookings.created_at DESC LIMIT 1
@@ -303,14 +299,27 @@ app.get('/rider/active-trip/:userId', (req, res) => {
   db.get(`
     SELECT bookings.id, bookings.status, rides.from_location, rides.to_location,
     rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
-    users.name as driver_name, users.phone as driver_phone, users.profile_picture as driver_pic,
-    users.id as driver_id
+    users.name as driver_name, users.phone as driver_phone, users.profile_picture as driver_pic, users.id as driver_id
     FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id
     WHERE bookings.passenger_id = ? AND bookings.status IN ('accepted','started')
     ORDER BY bookings.created_at DESC LIMIT 1
   `, [userId], (err, trip) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ trip: trip || null }); }
+  });
+});
+
+app.get('/driver/completed-trips/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.all(`
+    SELECT bookings.id, bookings.status, rides.from_location, rides.to_location, rides.price,
+    users.name as passenger_name, users.id as passenger_id, users.profile_picture as passenger_pic
+    FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id
+    WHERE rides.driver_id = ? AND bookings.status = 'completed'
+    ORDER BY bookings.created_at DESC
+  `, [userId], (err, trips) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ trips }); }
   });
 });
 
@@ -322,25 +331,21 @@ app.get('/notifications/:userId', (req, res) => {
   });
 });
 
-// MESSAGES - Send
 app.post('/messages', (req, res) => {
   const { sender_id, receiver_id, message } = req.body;
   if (!sender_id || !receiver_id || !message) {
     return res.status(400).json({ error: 'sender_id, receiver_id and message are required' });
   }
-  db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`,
-    [sender_id, receiver_id, message], function (err) {
-      if (err) { res.status(400).json({ error: err.message }); }
-      else { res.json({ message: 'Message sent!', messageId: this.lastID }); }
-    });
+  db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [sender_id, receiver_id, message], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Message sent!', messageId: this.lastID }); }
+  });
 });
 
-// MESSAGES - Get between two users
 app.get('/messages/:userId/:otherUserId', (req, res) => {
   const { userId, otherUserId } = req.params;
   db.all(`
-    SELECT messages.*, users.name as sender_name
-    FROM messages
+    SELECT messages.*, users.name as sender_name FROM messages
     JOIN users ON messages.sender_id = users.id
     WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
     ORDER BY messages.created_at ASC
@@ -350,7 +355,6 @@ app.get('/messages/:userId/:otherUserId', (req, res) => {
   });
 });
 
-// CONVERSATIONS - Get all conversations for a user
 app.get('/conversations/:userId', (req, res) => {
   const { userId } = req.params;
   db.all(`
@@ -371,52 +375,28 @@ app.get('/conversations/:userId', (req, res) => {
   });
 });
 
-// RATINGS - Submit (works for both driver rating rider and rider rating driver)
 app.post('/ratings', (req, res) => {
   const { ride_id, rater_id, rated_id, rating, comment, rater_role } = req.body;
-  db.run(`INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment, rater_role)
-    VALUES (?, ?, ?, ?, ?, ?)`,
-    [ride_id, rater_id, rated_id, rating, comment, rater_role || 'rider'],
-    function (err) {
+  db.run(`INSERT INTO ratings (ride_id, passenger_id, driver_id, rating, comment, rater_role) VALUES (?, ?, ?, ?, ?, ?)`,
+    [ride_id, rater_id, rated_id, rating, comment, rater_role || 'rider'], function (err) {
       if (err) { res.status(400).json({ error: err.message }); }
       else { res.json({ message: 'Rating submitted!', ratingId: this.lastID }); }
     });
 });
 
-// RATINGS - Get ratings for a user
 app.get('/ratings/:userId', (req, res) => {
   const { userId } = req.params;
   db.all(`
-    SELECT ratings.*, users.name as rater_name
-    FROM ratings
+    SELECT ratings.*, users.name as rater_name FROM ratings
     JOIN users ON users.id = ratings.passenger_id
     WHERE ratings.driver_id = ? OR ratings.passenger_id = ?
     ORDER BY ratings.created_at DESC
   `, [userId, userId], (err, ratings) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
-      const avgRating = ratings.length > 0
-        ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(1)
-        : 0;
+      const avgRating = ratings.length > 0 ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(1) : 0;
       res.json({ ratings, avgRating });
     }
-  });
-});
-
-// Get completed bookings for a driver to rate passengers
-app.get('/driver/completed-trips/:userId', (req, res) => {
-  const { userId } = req.params;
-  db.all(`
-    SELECT bookings.id, bookings.status, rides.from_location, rides.to_location, rides.price,
-    users.name as passenger_name, users.id as passenger_id, users.profile_picture as passenger_pic
-    FROM bookings
-    JOIN rides ON bookings.ride_id = rides.id
-    JOIN users ON bookings.passenger_id = users.id
-    WHERE rides.driver_id = ? AND bookings.status = 'completed'
-    ORDER BY bookings.created_at DESC
-  `, [userId], (err, trips) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ trips }); }
   });
 });
 
@@ -541,6 +521,22 @@ app.get('/admin/revenue', (req, res) => {
   });
 });
 
+app.get('/rides/:rideId/cancel', (req, res) => {
+  const { rideId } = req.params;
+  db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Ride cancelled!' }); }
+  });
+});
+
+app.put('/rides/:rideId/cancel', (req, res) => {
+  const { rideId } = req.params;
+  db.run(`UPDATE rides SET status = 'cancelled' WHERE id = ?`, [rideId], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Ride cancelled!' }); }
+  });
+});
+
 app.get('/setup-admin/:email', (req, res) => {
   const { email } = req.params;
   db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function (err) {
@@ -578,13 +574,7 @@ setTimeout(() => {
     console.log('Admin role restored');
   });
 }, 2000);
-app.get('/reset-password/:email/:newPassword', (req, res) => {
-  const { email, newPassword } = req.params;
-  db.run(`UPDATE users SET password = ? WHERE email = ?`, [newPassword, email], function(err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: `Password reset for ${email}!` }); }
-  });
-});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
