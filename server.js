@@ -61,6 +61,14 @@ app.get('/reset-password/:email/:newPassword', (req, res) => {
   });
 });
 
+app.get('/setup-admin/:email', (req, res) => {
+  const { email } = req.params;
+  db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function (err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: `Admin role set for ${email}!` }); }
+  });
+});
+
 app.put('/users/:userId/profile', (req, res) => {
   const { userId } = req.params;
   const { name, phone, vehicle_number, vehicle_model, vehicle_color } = req.body;
@@ -69,13 +77,6 @@ app.put('/users/:userId/profile', (req, res) => {
       if (err) { res.status(400).json({ error: err.message }); }
       else { res.json({ message: 'Profile updated!' }); }
     });
-});', (req, res) => {
-  const { userId } = req.params;
-  const { name, phone } = req.body;
-  db.run(`UPDATE users SET name = ?, phone = ? WHERE id = ?`, [name, phone, userId], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Profile updated!' }); }
-  });
 });
 
 app.put('/users/:userId/status', (req, res) => {
@@ -99,12 +100,6 @@ app.put('/users/:userId/picture', (req, res) => {
 app.get('/profile/:userId', (req, res) => {
   const { userId } = req.params;
   db.get(`SELECT id, name, email, role, phone, profile_picture, is_online, wallet_balance, referral_code, vehicle_number, vehicle_model, vehicle_color, created_at FROM users WHERE id = ?`, [userId], (err, user) => {
-    if (err || !user) { res.status(400).json({ error: 'User not found' }); }
-    else { res.json({ user }); }
-  });
-});, (req, res) => {
-  const { userId } = req.params;
-  db.get(`SELECT id, name, email, role, phone, profile_picture, is_online, wallet_balance, referral_code, created_at FROM users WHERE id = ?`, [userId], (err, user) => {
     if (err || !user) { res.status(400).json({ error: 'User not found' }); }
     else { res.json({ user }); }
   });
@@ -186,7 +181,6 @@ app.get('/rides/match', (req, res) => {
         if (fromIdx >= minRide && toIdx <= maxRide) return true;
       }
 
-      // Check waypoints
       for (const wp of waypointList) {
         const wpIdx = corridor.findIndex(s => wp.includes(s) || s.includes(wp));
         if (wpIdx !== -1 && fromIdx !== -1) {
@@ -199,7 +193,7 @@ app.get('/rides/match', (req, res) => {
     return false;
   };
 
-  db.all(`SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online, users.vehicle_number, users.vehicle_model, users.vehicle_color FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`, [], ...
+  db.all(`SELECT rides.*, users.name as driver_name, users.phone as driver_phone, users.profile_picture, users.is_online, users.vehicle_number, users.vehicle_model, users.vehicle_color FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.status = 'active' AND rides.seats_available > 0`, [], (err, rides) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
       const matches = rides.filter(ride => {
@@ -207,13 +201,9 @@ app.get('/rides/match', (req, res) => {
         const toN = normalize(to_city);
         const rideFromN = normalize(ride.from_location);
         const rideToN = normalize(ride.to_location);
-
-        // Direct match
         const fromMatch = !from_city || rideFromN.includes(fromN) || fromN.includes(rideFromN);
         const toMatch = !to_city || rideToN.includes(toN) || toN.includes(rideToN);
         if (fromMatch && toMatch) return true;
-
-        // Corridor match
         if (from_city || to_city) {
           return isOnSameCorridor(from_city, to_city, ride.from_location, ride.to_location, ride.waypoints);
         }
@@ -329,8 +319,6 @@ app.get('/my-bookings/:userId', (req, res) => {
     else { res.json({ bookings }); }
   });
 });
-  });
-});
 
 app.get('/driver/requests/:userId', (req, res) => {
   const { userId } = req.params;
@@ -372,7 +360,8 @@ app.get('/rider/active-trip/:userId', (req, res) => {
     SELECT bookings.id, bookings.status,
     rides.from_location, rides.to_location, rides.from_lat, rides.from_lng, rides.to_lat, rides.to_lng, rides.price,
     users.name as driver_name, users.phone as driver_phone,
-    users.profile_picture as driver_pic, users.id as driver_id
+    users.profile_picture as driver_pic, users.id as driver_id,
+    users.vehicle_number, users.vehicle_model, users.vehicle_color
     FROM bookings JOIN rides ON bookings.ride_id = rides.id
     JOIN users ON rides.driver_id = users.id
     WHERE bookings.passenger_id = ? AND bookings.status IN ('accepted','started')
@@ -604,14 +593,6 @@ app.put('/rides/:rideId/cancel', (req, res) => {
   });
 });
 
-app.get('/setup-admin/:email', (req, res) => {
-  const { email } = req.params;
-  db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: `Admin role set for ${email}!` }); }
-  });
-});
-
 // Migrations
 db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'rider'`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL`, () => {});
@@ -619,6 +600,9 @@ db.run(`ALTER TABLE users ADD COLUMN profile_picture TEXT DEFAULT NULL`, () => {
 db.run(`ALTER TABLE users ADD COLUMN is_online INTEGER DEFAULT 0`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN wallet_balance REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN vehicle_number TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN vehicle_model TEXT DEFAULT NULL`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN vehicle_color TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE rides ADD COLUMN price REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE rides ADD COLUMN waypoints TEXT DEFAULT ''`, () => {});
 db.run(`ALTER TABLE rides ADD COLUMN full_route TEXT DEFAULT ''`, () => {});
@@ -642,9 +626,7 @@ setTimeout(() => {
     console.log('Admin role restored for homatekpor@gmail.com');
   });
 }, 2000);
-db.run(`ALTER TABLE users ADD COLUMN vehicle_number TEXT DEFAULT NULL`, () => {});
-db.run(`ALTER TABLE users ADD COLUMN vehicle_model TEXT DEFAULT NULL`, () => {});
-db.run(`ALTER TABLE users ADD COLUMN vehicle_color TEXT DEFAULT NULL`, () => {});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
