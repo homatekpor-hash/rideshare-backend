@@ -324,9 +324,11 @@ app.get('/my-rides/:userId', (req, res) => {
 
 app.get('/my-bookings/:userId', (req, res) => {
   const { userId } = req.params;
-  db.all(`SELECT bookings.id, bookings.status as booking_status, rides.from_location, rides.to_location, rides.departure_time, rides.price, rides.driver_id, rides.id as ride_id, users.name as driver_name, users.phone as driver_phone FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id WHERE bookings.passenger_id = ? ORDER BY bookings.created_at DESC`, [userId], (err, bookings) => {
+  db.all(`SELECT bookings.id, bookings.status as booking_status, rides.from_location, rides.to_location, rides.departure_time, rides.price, rides.driver_id, rides.id as ride_id, users.name as driver_name, users.phone as driver_phone, users.vehicle_number, users.vehicle_model, users.vehicle_color FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id WHERE bookings.passenger_id = ? ORDER BY bookings.created_at DESC`, [userId], (err, bookings) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ bookings }); }
+  });
+});
   });
 });
 
