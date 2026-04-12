@@ -104,7 +104,18 @@ app.post('/forgot-password', (req, res) => {
     }
   });
 });
-
+app.post('/change-password', (req, res) => {
+  const { userId, currentPassword, newPassword } = req.body;
+  db.get(`SELECT id FROM users WHERE id = ? AND password = ?`, [userId, currentPassword], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'Current password is incorrect' }); }
+    else {
+      db.run(`UPDATE users SET password = ? WHERE id = ?`, [newPassword, userId], function (err) {
+        if (err) { res.status(400).json({ error: err.message }); }
+        else { res.json({ message: 'Password changed successfully!' }); }
+      });
+    }
+  });
+});
 app.get('/setup-admin/:email', (req, res) => {
   const { email } = req.params;
   db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function (err) {
