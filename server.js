@@ -60,7 +60,18 @@ app.get('/reset-password/:email/:newPassword', (req, res) => {
     else { res.json({ message: `Password reset for ${email}!` }); }
   });
 });
-
+app.post('/forgot-password', (req, res) => {
+  const { email, newPassword } = req.body;
+  db.get(`SELECT id FROM users WHERE email = ?`, [email], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'Email not found' }); }
+    else {
+      db.run(`UPDATE users SET password = ? WHERE email = ?`, [newPassword, email], function (err) {
+        if (err) { res.status(400).json({ error: err.message }); }
+        else { res.json({ message: 'Password reset successfully!' }); }
+      });
+    }
+  });
+});
 app.get('/setup-admin/:email', (req, res) => {
   const { email } = req.params;
   db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function (err) {
