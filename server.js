@@ -222,14 +222,15 @@ app.get('/rides', (req, res) => {
 });
 
 app.post('/bookings', (req, res) => {
-  const { ride_id, passenger_id } = req.body;
-  db.run(`INSERT INTO bookings (ride_id, passenger_id, status) VALUES (?, ?, 'pending')`, [ride_id, passenger_id], function (err) {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else {
-      db.run(`UPDATE rides SET seats_available = seats_available - 1 WHERE id = ?`, [ride_id]);
-      res.json({ message: 'Ride booked!', bookingId: this.lastID });
-    }
-  });
+  const { ride_id, passenger_id, payment_reference } = req.body;
+  db.run(`INSERT INTO bookings (ride_id, passenger_id, status, payment_reference) VALUES (?, ?, 'pending', ?)`, 
+    [ride_id, passenger_id, payment_reference || null], function (err) {
+      if (err) { res.status(400).json({ error: err.message }); }
+      else {
+        db.run(`UPDATE rides SET seats_available = seats_available - 1 WHERE id = ?`, [ride_id]);
+        res.json({ message: 'Ride booked!', bookingId: this.lastID });
+      }
+    });
 });
 
 app.put('/bookings/:bookingId/accept', (req, res) => {
@@ -620,7 +621,7 @@ db.run(`CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREME
 db.run(`CREATE TABLE IF NOT EXISTS wallet_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount REAL, type TEXT, description TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER, receiver_id INTEGER, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS ratings (id INTEGER PRIMARY KEY AUTOINCREMENT, ride_id INTEGER, passenger_id INTEGER, driver_id INTEGER, rating INTEGER, comment TEXT, rater_role TEXT DEFAULT 'rider', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
-
+db.run(`ALTER TABLE bookings ADD COLUMN payment_reference TEXT DEFAULT NULL`, () => {});
 setTimeout(() => {
   db.run(`UPDATE users SET role = 'admin' WHERE email = 'homatekpor@gmail.com'`, () => {
     console.log('Admin role restored for homatekpor@gmail.com');
