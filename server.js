@@ -60,6 +60,7 @@ app.get('/reset-password/:email/:newPassword', (req, res) => {
     else { res.json({ message: `Password reset for ${email}!` }); }
   });
 });
+
 app.post('/forgot-password', (req, res) => {
   const { email, newPassword } = req.body;
   db.get(`SELECT id FROM users WHERE email = ?`, [email], (err, user) => {
@@ -72,6 +73,7 @@ app.post('/forgot-password', (req, res) => {
     }
   });
 });
+
 app.get('/setup-admin/:email', (req, res) => {
   const { email } = req.params;
   db.run(`UPDATE users SET role = 'admin' WHERE email = ?`, [email], function (err) {
@@ -156,19 +158,90 @@ app.get('/rides/match', (req, res) => {
   const { from_city, to_city } = req.query;
 
   const corridors = [
-    ['accra', 'odorkor', 'darkuman', 'mallam junction', 'kaneshie', 'north kaneshie', 'weija', 'weija junction', 'kasoa', 'budumburam', 'winneba'],
-    ['accra', 'achimota', 'lapaz', 'tantra hill', 'ofankor', 'pokuase', 'amasaman', 'nsawam'],
-    ['accra', 'madina', 'adenta', 'oyibi', 'aburi', 'koforidua'],
-    ['accra', 'spintex', 'teshie', 'nungua', 'community 1', 'tema', 'ashaiman'],
-    ['accra', 'circle', 'achimota', 'ofankor', 'kumasi'],
-    ['accra', 'adabraka', 'tudu', 'makola', 'agbogbloshie', 'kaneshie'],
-    ['accra', 'osu', 'labone', 'airport', 'east legon', 'legon', 'haatso', 'taifa', 'dome', 'kwabenya'],
-    ['accra', 'dansoman', 'mamprobi', 'korle bu', 'kaneshie'],
-    ['kumasi', 'ejisu', 'konongo', 'cape coast', 'takoradi'],
-    ['accra', 'cape coast', 'takoradi'],
-    ['accra', 'winneba', 'cape coast'],
-    ['kaneshie', 'mallam junction', 'odorkor', 'darkuman', 'lapaz', 'achimota', 'accra'],
-    ['kasoa', 'weija junction', 'weija', 'darkuman', 'mallam junction', 'kaneshie', 'accra'],
+    // Accra - Kasoa corridor (most popular)
+    ['accra', 'kaneshie', 'north kaneshie', 'odorkor', 'darkuman', 'mallam junction', 'dansoman', 'lapaz', 'tantra hill', 'ablekuma', 'weija', 'weija junction', 'kasoa', 'budumburam', 'winneba', 'agona swedru', 'cape coast'],
+
+    // Accra - Tema corridor
+    ['accra', 'osu', 'labadi', 'teshie', 'nungua', 'sakumono', 'community 1', 'community 5', 'tema', 'ashaiman', 'afienya', 'prampram', 'ada'],
+
+    // Accra - Kumasi corridor
+    ['accra', 'achimota', 'ofankor', 'pokuase', 'amasaman', 'nsawam', 'suhum', 'nkawkaw', 'juaso', 'konongo', 'ejisu', 'kumasi'],
+
+    // Accra - Koforidua corridor
+    ['accra', 'adenta', 'madina', 'oyibi', 'aburi', 'kukurantumi', 'koforidua', 'nkawkaw'],
+
+    // Accra - Cape Coast / Takoradi corridor
+    ['accra', 'winneba', 'mankessim', 'cape coast', 'elmina', 'takoradi', 'sekondi'],
+
+    // Accra internal - North
+    ['accra', 'circle', 'achimota', 'lapaz', 'tantra hill', 'ofankor', 'pokuase', 'amasaman'],
+
+    // Accra internal - East
+    ['accra', 'adabraka', 'asylum down', 'airport', 'east legon', 'legon', 'haatso', 'taifa', 'dome', 'kwabenya', 'atomic', 'ashongman', 'madina'],
+
+    // Accra - Dodowa corridor
+    ['accra', 'madina', 'adenta', 'oyibi', 'dodowa', 'shai hills', 'afienya'],
+
+    // Manhean corridors
+    ['manhean', 'accra', 'circle', 'kaneshie', 'odorkor', 'mallam junction', 'kasoa'],
+    ['manhean', 'madina', 'adenta', 'legon', 'east legon', 'airport'],
+    ['manhean', 'dodowa', 'oyibi', 'adenta', 'madina'],
+    ['manhean', 'lapaz', 'achimota', 'ofankor', 'pokuase'],
+    ['manhean', 'tema', 'ashaiman', 'nungua', 'teshie'],
+
+    // Ablekuma corridors
+    ['ablekuma', 'accra', 'kaneshie', 'mallam junction', 'kasoa', 'weija'],
+    ['ablekuma', 'lapaz', 'achimota', 'ofankor', 'accra'],
+    ['ablekuma', 'dodowa', 'oyibi', 'madina', 'adenta'],
+    ['ablekuma', 'dansoman', 'kaneshie', 'accra'],
+    ['ablekuma', 'darkuman', 'odorkor', 'kaneshie', 'accra'],
+
+    // Lapaz corridors
+    ['lapaz', 'accra', 'kaneshie', 'odorkor', 'mallam junction', 'kasoa'],
+    ['lapaz', 'achimota', 'madina', 'adenta', 'oyibi', 'dodowa'],
+    ['lapaz', 'ofankor', 'pokuase', 'amasaman', 'nsawam'],
+    ['lapaz', 'tantra hill', 'ablekuma', 'weija', 'kasoa'],
+
+    // Dansoman corridors
+    ['dansoman', 'kaneshie', 'accra', 'osu', 'labadi', 'teshie', 'nungua', 'tema'],
+    ['dansoman', 'mallam junction', 'kasoa', 'weija'],
+
+    // Kumasi - Takoradi corridor
+    ['kumasi', 'bekwai', 'obuasi', 'tarkwa', 'takoradi', 'sekondi'],
+
+    // Kumasi - Tamale corridor
+    ['kumasi', 'techiman', 'kintampo', 'tamale', 'bolgatanga', 'navrongo'],
+
+    // Accra - Tamale corridor
+    ['accra', 'kumasi', 'techiman', 'kintampo', 'tamale'],
+
+    // Accra - Aflao / Ho corridor
+    ['accra', 'tema', 'ashaiman', 'aflao', 'keta', 'ho', 'hohoe'],
+
+    // Ho - Kumasi corridor
+    ['ho', 'hohoe', 'jasikan', 'nkawkaw', 'kumasi'],
+
+    // Sunyani corridor
+    ['kumasi', 'techiman', 'sunyani', 'berekum', 'wenchi'],
+
+    // Upper East / West
+    ['tamale', 'bolgatanga', 'navrongo', 'bawku'],
+    ['tamale', 'yendi', 'bimbilla'],
+    ['tamale', 'wa', 'lawra', 'tumu'],
+
+    // Spintex / Airport areas
+    ['accra', 'airport', 'spintex', 'baatsona', 'tema'],
+    ['accra', 'east legon', 'spintex', 'tema'],
+
+    // Reverse corridors
+    ['kasoa', 'weija junction', 'weija', 'ablekuma', 'mallam junction', 'darkuman', 'odorkor', 'kaneshie', 'accra'],
+    ['tema', 'ashaiman', 'nungua', 'teshie', 'labadi', 'osu', 'accra'],
+    ['kumasi', 'ejisu', 'konongo', 'nkawkaw', 'suhum', 'nsawam', 'amasaman', 'pokuase', 'ofankor', 'achimota', 'accra'],
+    ['cape coast', 'winneba', 'accra'],
+    ['takoradi', 'cape coast', 'winneba', 'accra'],
+    ['dodowa', 'oyibi', 'adenta', 'madina', 'accra'],
+    ['dodowa', 'oyibi', 'adenta', 'madina', 'manhean'],
+    ['dodowa', 'ablekuma', 'lapaz', 'accra'],
   ];
 
   const normalize = (str) => str?.toLowerCase().trim() || '';
@@ -234,7 +307,7 @@ app.get('/rides', (req, res) => {
 
 app.post('/bookings', (req, res) => {
   const { ride_id, passenger_id, payment_reference } = req.body;
-  db.run(`INSERT INTO bookings (ride_id, passenger_id, status, payment_reference) VALUES (?, ?, 'pending', ?)`, 
+  db.run(`INSERT INTO bookings (ride_id, passenger_id, status, payment_reference) VALUES (?, ?, 'pending', ?)`,
     [ride_id, passenger_id, payment_reference || null], function (err) {
       if (err) { res.status(400).json({ error: err.message }); }
       else {
@@ -619,6 +692,7 @@ db.run(`ALTER TABLE rides ADD COLUMN price REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE rides ADD COLUMN waypoints TEXT DEFAULT ''`, () => {});
 db.run(`ALTER TABLE rides ADD COLUMN full_route TEXT DEFAULT ''`, () => {});
 db.run(`ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'pending'`, () => {});
+db.run(`ALTER TABLE bookings ADD COLUMN payment_reference TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN license_front TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN license_back TEXT DEFAULT NULL`, () => {});
 db.run(`ALTER TABLE driver_documents ADD COLUMN national_id_front TEXT DEFAULT NULL`, () => {});
@@ -632,7 +706,7 @@ db.run(`CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREME
 db.run(`CREATE TABLE IF NOT EXISTS wallet_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount REAL, type TEXT, description TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER, receiver_id INTEGER, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
 db.run(`CREATE TABLE IF NOT EXISTS ratings (id INTEGER PRIMARY KEY AUTOINCREMENT, ride_id INTEGER, passenger_id INTEGER, driver_id INTEGER, rating INTEGER, comment TEXT, rater_role TEXT DEFAULT 'rider', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`, () => {});
-db.run(`ALTER TABLE bookings ADD COLUMN payment_reference TEXT DEFAULT NULL`, () => {});
+
 setTimeout(() => {
   db.run(`UPDATE users SET role = 'admin' WHERE email = 'homatekpor@gmail.com'`, () => {
     console.log('Admin role restored for homatekpor@gmail.com');
