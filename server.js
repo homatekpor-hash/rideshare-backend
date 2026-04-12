@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+const WebSocket = require('ws');
 const db = require('./database');
 
 const app = express();
@@ -8,6 +10,35 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+const clients = new Map();
+
+wss.on('connection', (ws) => {
+  console.log('New WebSocket connection');
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.type === 'register') {
+        clients.set(String(msg.userId), ws);
+        console.log(`User ${msg.userId} registered for WebSocket`);
+      }
+    } catch (e) { console.error('WS error:', e); }
+  });
+  ws.on('close', () => {
+    clients.forEach((client, userId) => {
+      if (client === ws) clients.delete(userId);
+    });
+  });
+});
+
+const sendToUser = (userId, data) => {
+  const client = clients.get(String(userId));
+  if (client && client.readyState === WebSocket.OPEN) {
+    client.send(JSON.stringify(data));
+  }
+};
 
 app.get('/', (req, res) => {
   res.json({ message: 'Rideshare API is running!' });
@@ -158,82 +189,41 @@ app.get('/rides/match', (req, res) => {
   const { from_city, to_city } = req.query;
 
   const corridors = [
-    // Accra - Kasoa corridor (most popular)
     ['accra', 'kaneshie', 'north kaneshie', 'odorkor', 'darkuman', 'mallam junction', 'dansoman', 'lapaz', 'tantra hill', 'ablekuma', 'weija', 'weija junction', 'kasoa', 'budumburam', 'winneba', 'agona swedru', 'cape coast'],
-
-    // Accra - Tema corridor
     ['accra', 'osu', 'labadi', 'teshie', 'nungua', 'sakumono', 'community 1', 'community 5', 'tema', 'ashaiman', 'afienya', 'prampram', 'ada'],
-
-    // Accra - Kumasi corridor
     ['accra', 'achimota', 'ofankor', 'pokuase', 'amasaman', 'nsawam', 'suhum', 'nkawkaw', 'juaso', 'konongo', 'ejisu', 'kumasi'],
-
-    // Accra - Koforidua corridor
     ['accra', 'adenta', 'madina', 'oyibi', 'aburi', 'kukurantumi', 'koforidua', 'nkawkaw'],
-
-    // Accra - Cape Coast / Takoradi corridor
     ['accra', 'winneba', 'mankessim', 'cape coast', 'elmina', 'takoradi', 'sekondi'],
-
-    // Accra internal - North
     ['accra', 'circle', 'achimota', 'lapaz', 'tantra hill', 'ofankor', 'pokuase', 'amasaman'],
-
-    // Accra internal - East
     ['accra', 'adabraka', 'asylum down', 'airport', 'east legon', 'legon', 'haatso', 'taifa', 'dome', 'kwabenya', 'atomic', 'ashongman', 'madina'],
-
-    // Accra - Dodowa corridor
     ['accra', 'madina', 'adenta', 'oyibi', 'dodowa', 'shai hills', 'afienya'],
-
-    // Manhean corridors
+    ['accra', 'airport', 'spintex', 'baatsona', 'tema'],
+    ['accra', 'east legon', 'spintex', 'tema'],
     ['manhean', 'accra', 'circle', 'kaneshie', 'odorkor', 'mallam junction', 'kasoa'],
     ['manhean', 'madina', 'adenta', 'legon', 'east legon', 'airport'],
     ['manhean', 'dodowa', 'oyibi', 'adenta', 'madina'],
     ['manhean', 'lapaz', 'achimota', 'ofankor', 'pokuase'],
     ['manhean', 'tema', 'ashaiman', 'nungua', 'teshie'],
-
-    // Ablekuma corridors
     ['ablekuma', 'accra', 'kaneshie', 'mallam junction', 'kasoa', 'weija'],
     ['ablekuma', 'lapaz', 'achimota', 'ofankor', 'accra'],
     ['ablekuma', 'dodowa', 'oyibi', 'madina', 'adenta'],
     ['ablekuma', 'dansoman', 'kaneshie', 'accra'],
     ['ablekuma', 'darkuman', 'odorkor', 'kaneshie', 'accra'],
-
-    // Lapaz corridors
     ['lapaz', 'accra', 'kaneshie', 'odorkor', 'mallam junction', 'kasoa'],
     ['lapaz', 'achimota', 'madina', 'adenta', 'oyibi', 'dodowa'],
     ['lapaz', 'ofankor', 'pokuase', 'amasaman', 'nsawam'],
     ['lapaz', 'tantra hill', 'ablekuma', 'weija', 'kasoa'],
-
-    // Dansoman corridors
     ['dansoman', 'kaneshie', 'accra', 'osu', 'labadi', 'teshie', 'nungua', 'tema'],
     ['dansoman', 'mallam junction', 'kasoa', 'weija'],
-
-    // Kumasi - Takoradi corridor
     ['kumasi', 'bekwai', 'obuasi', 'tarkwa', 'takoradi', 'sekondi'],
-
-    // Kumasi - Tamale corridor
     ['kumasi', 'techiman', 'kintampo', 'tamale', 'bolgatanga', 'navrongo'],
-
-    // Accra - Tamale corridor
     ['accra', 'kumasi', 'techiman', 'kintampo', 'tamale'],
-
-    // Accra - Aflao / Ho corridor
     ['accra', 'tema', 'ashaiman', 'aflao', 'keta', 'ho', 'hohoe'],
-
-    // Ho - Kumasi corridor
     ['ho', 'hohoe', 'jasikan', 'nkawkaw', 'kumasi'],
-
-    // Sunyani corridor
     ['kumasi', 'techiman', 'sunyani', 'berekum', 'wenchi'],
-
-    // Upper East / West
     ['tamale', 'bolgatanga', 'navrongo', 'bawku'],
     ['tamale', 'yendi', 'bimbilla'],
     ['tamale', 'wa', 'lawra', 'tumu'],
-
-    // Spintex / Airport areas
-    ['accra', 'airport', 'spintex', 'baatsona', 'tema'],
-    ['accra', 'east legon', 'spintex', 'tema'],
-
-    // Reverse corridors
     ['kasoa', 'weija junction', 'weija', 'ablekuma', 'mallam junction', 'darkuman', 'odorkor', 'kaneshie', 'accra'],
     ['tema', 'ashaiman', 'nungua', 'teshie', 'labadi', 'osu', 'accra'],
     ['kumasi', 'ejisu', 'konongo', 'nkawkaw', 'suhum', 'nsawam', 'amasaman', 'pokuase', 'ofankor', 'achimota', 'accra'],
@@ -312,6 +302,11 @@ app.post('/bookings', (req, res) => {
       if (err) { res.status(400).json({ error: err.message }); }
       else {
         db.run(`UPDATE rides SET seats_available = seats_available - 1 WHERE id = ?`, [ride_id]);
+        db.get(`SELECT rides.driver_id FROM rides WHERE id = ?`, [ride_id], (err, ride) => {
+          if (ride) {
+            sendToUser(ride.driver_id, { type: 'new_request', message: 'You have a new ride request!' });
+          }
+        });
         res.json({ message: 'Ride booked!', bookingId: this.lastID });
       }
     });
@@ -326,6 +321,7 @@ app.put('/bookings/:bookingId/accept', (req, res) => {
         if (booking) {
           const autoMsg = `Hello! I have accepted your booking. I will pick you up at ${booking.from_location}. Please be ready! 🚗`;
           db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [booking.driver_id, booking.passenger_id, autoMsg]);
+          sendToUser(booking.passenger_id, { type: 'booking_accepted', message: `${booking.driver_name} has accepted your booking!` });
         }
       });
       res.json({ message: 'Booking accepted!' });
@@ -335,11 +331,12 @@ app.put('/bookings/:bookingId/accept', (req, res) => {
 
 app.put('/bookings/:bookingId/decline', (req, res) => {
   const { bookingId } = req.params;
-  db.get(`SELECT ride_id FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
+  db.get(`SELECT ride_id, passenger_id FROM bookings WHERE id = ?`, [bookingId], (err, booking) => {
     if (err || !booking) { res.status(400).json({ error: 'Booking not found' }); }
     else {
       db.run(`UPDATE bookings SET status = 'declined' WHERE id = ?`, [bookingId]);
       db.run(`UPDATE rides SET seats_available = seats_available + 1 WHERE id = ?`, [booking.ride_id]);
+      sendToUser(booking.passenger_id, { type: 'booking_declined', message: 'Your booking was declined. Please try another ride.' });
       res.json({ message: 'Booking declined.' });
     }
   });
@@ -354,6 +351,7 @@ app.put('/bookings/:bookingId/start', (req, res) => {
         if (booking) {
           const autoMsg = `Your trip has started! We are now heading to ${booking.to_location}. Sit back and enjoy the ride! 🛣️`;
           db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [booking.driver_id, booking.passenger_id, autoMsg]);
+          sendToUser(booking.passenger_id, { type: 'trip_started', message: `Your trip to ${booking.to_location} has started!` });
         }
       });
       res.json({ message: 'Trip started!' });
@@ -372,6 +370,7 @@ app.put('/bookings/:bookingId/end', (req, res) => {
       db.run(`INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, 'credit', 'Trip payment received')`, [booking.driver_id, netAmount]);
       const autoMsg = `We have arrived at ${booking.to_location}! Thank you for riding with us. Please rate your experience. Have a great day! 🎉`;
       db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [booking.driver_id, booking.passenger_id, autoMsg]);
+      sendToUser(booking.passenger_id, { type: 'trip_completed', message: `You have arrived at ${booking.to_location}. Thank you for riding with Ryde!` });
       res.json({ message: 'Trip completed! Payment processed.', netAmount });
     }
   });
@@ -472,14 +471,6 @@ app.get('/driver/completed-trips/:userId', (req, res) => {
   });
 });
 
-app.get('/notifications/:userId', (req, res) => {
-  const { userId } = req.params;
-  db.all(`SELECT bookings.id, bookings.status, bookings.created_at, users.name as passenger_name, rides.from_location, rides.to_location FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON bookings.passenger_id = users.id WHERE rides.driver_id = ? ORDER BY bookings.created_at DESC`, [userId], (err, notifications) => {
-    if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ notifications }); }
-  });
-});
-
 app.post('/messages', (req, res) => {
   const { sender_id, receiver_id, message } = req.body;
   if (!sender_id || !receiver_id || !message) {
@@ -487,7 +478,10 @@ app.post('/messages', (req, res) => {
   }
   db.run(`INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`, [sender_id, receiver_id, message], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Message sent!', messageId: this.lastID }); }
+    else {
+      sendToUser(receiver_id, { type: 'new_message', message, sender_id, messageId: this.lastID });
+      res.json({ message: 'Message sent!', messageId: this.lastID });
+    }
   });
 });
 
@@ -645,7 +639,10 @@ app.put('/admin/documents/:driverId/verify', (req, res) => {
   const { driverId } = req.params;
   db.run(`UPDATE driver_documents SET verified = 1, rejection_reason = NULL WHERE driver_id = ?`, [driverId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Driver verified!' }); }
+    else {
+      sendToUser(driverId, { type: 'documents_verified', message: '✅ Your documents have been verified! You can now accept rides.' });
+      res.json({ message: 'Driver verified!' });
+    }
   });
 });
 
@@ -654,7 +651,10 @@ app.put('/admin/documents/:driverId/reject', (req, res) => {
   const { reason } = req.body;
   db.run(`UPDATE driver_documents SET verified = 0, rejection_reason = ? WHERE driver_id = ?`, [reason, driverId], function (err) {
     if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: 'Documents rejected!' }); }
+    else {
+      sendToUser(driverId, { type: 'documents_rejected', message: `❌ Your documents were rejected. Reason: ${reason}` });
+      res.json({ message: 'Documents rejected!' });
+    }
   });
 });
 
@@ -713,6 +713,6 @@ setTimeout(() => {
   });
 }, 2000);
 
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
