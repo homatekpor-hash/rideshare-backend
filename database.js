@@ -1,6 +1,13 @@
 const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 
-const db = new sqlite3.Database('./rideshare.db', (err) => {
+const dbPath = process.env.RAILWAY_VOLUME_MOUNT_PATH
+  ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'rideshare.db')
+  : './rideshare.db';
+
+console.log('Database path:', dbPath);
+
+const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Error connecting to database:', err);
   } else {
@@ -9,7 +16,6 @@ const db = new sqlite3.Database('./rideshare.db', (err) => {
 });
 
 db.serialize(() => {
-
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -21,21 +27,26 @@ db.serialize(() => {
     is_online INTEGER DEFAULT 0,
     wallet_balance REAL DEFAULT 0,
     referral_code TEXT DEFAULT NULL,
+    vehicle_number TEXT DEFAULT NULL,
+    vehicle_model TEXT DEFAULT NULL,
+    vehicle_color TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS driver_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     driver_id INTEGER NOT NULL,
-    license_image TEXT DEFAULT NULL,
-    national_id_image TEXT DEFAULT NULL,
+    license_front TEXT DEFAULT NULL,
+    license_back TEXT DEFAULT NULL,
+    national_id_front TEXT DEFAULT NULL,
+    national_id_back TEXT DEFAULT NULL,
     insurance_image TEXT DEFAULT NULL,
     roadworthiness_image TEXT DEFAULT NULL,
+    face_photo TEXT DEFAULT NULL,
     verified INTEGER DEFAULT 0,
+    rejection_reason TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (driver_id) REFERENCES users(id)
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS rides (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     driver_id INTEGER NOT NULL,
@@ -49,10 +60,11 @@ db.serialize(() => {
     departure_time TEXT NOT NULL,
     price REAL DEFAULT 0,
     status TEXT DEFAULT 'active',
+    waypoints TEXT DEFAULT '',
+    full_route TEXT DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (driver_id) REFERENCES users(id)
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS bookings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ride_id INTEGER NOT NULL,
@@ -62,7 +74,6 @@ db.serialize(() => {
     FOREIGN KEY (ride_id) REFERENCES rides(id),
     FOREIGN KEY (passenger_id) REFERENCES users(id)
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sender_id INTEGER NOT NULL,
@@ -72,7 +83,6 @@ db.serialize(() => {
     FOREIGN KEY (sender_id) REFERENCES users(id),
     FOREIGN KEY (receiver_id) REFERENCES users(id)
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS ratings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ride_id INTEGER NOT NULL,
@@ -80,12 +90,12 @@ db.serialize(() => {
     driver_id INTEGER NOT NULL,
     rating INTEGER NOT NULL,
     comment TEXT,
+    rater_role TEXT DEFAULT 'rider',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (ride_id) REFERENCES rides(id),
     FOREIGN KEY (passenger_id) REFERENCES users(id),
     FOREIGN KEY (driver_id) REFERENCES users(id)
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS complaints (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -95,7 +105,6 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS referrals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     referrer_id INTEGER NOT NULL,
@@ -104,7 +113,6 @@ db.serialize(() => {
     FOREIGN KEY (referrer_id) REFERENCES users(id),
     FOREIGN KEY (referred_id) REFERENCES users(id)
   )`);
-
   db.run(`CREATE TABLE IF NOT EXISTS wallet_transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -114,7 +122,6 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
   )`);
-
   console.log('Database tables ready!');
 });
 
