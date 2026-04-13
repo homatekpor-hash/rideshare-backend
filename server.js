@@ -114,6 +114,17 @@ app.post('/forgot-password', (req, res) => {
   });
 });
   });
+});app.post('/sos', (req, res) => {
+  const { userId, location } = req.body;
+  db.get(`SELECT name, phone, email FROM users WHERE id = ?`, [userId], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'User not found' }); }
+    else {
+      db.run(`INSERT INTO complaints (user_id, subject, message) VALUES (?, 'SOS EMERGENCY', ?)`,
+        [userId, `EMERGENCY! ${user.name} needs help at location: ${location}. Time: ${new Date().toLocaleString()}`]);
+      sendToUser(userId, { type: 'sos_received', message: 'SOS sent! Help is on the way.' });
+      res.json({ message: 'SOS alert sent!' });
+    }
+  });
 });
 app.post('/change-password', (req, res) => {
   const { userId, currentPassword, newPassword } = req.body;
