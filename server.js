@@ -153,7 +153,28 @@ app.post('/forgot-password', (req, res) => {
       sendToUser(userId, { type: 'withdrawal', message: `GH₵ ${amount} withdrawal to ${phone} initiated!` });
       res.json({ message: `Withdrawal of GH₵ ${amount} to ${phone} initiated successfully!` });
     }
+  });app.get('/driver/performance/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.get(`
+    SELECT 
+      COUNT(CASE WHEN bookings.status IN ('accepted','started','completed') THEN 1 END) as accepted,
+      COUNT(CASE WHEN bookings.status = 'declined' THEN 1 END) as declined,
+      COUNT(CASE WHEN bookings.status = 'completed' THEN 1 END) as completed,
+      COUNT(CASE WHEN bookings.status = 'cancelled' THEN 1 END) as cancelled,
+      COUNT(*) as total
+    FROM bookings 
+    JOIN rides ON bookings.ride_id = rides.id
+    WHERE rides.driver_id = ?
+  `, [userId], (err, stats) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      const acceptanceRate = stats.total > 0 ? Math.round((stats.accepted / stats.total) * 100) : 0;
+      const completionRate = stats.accepted > 0 ? Math.round((stats.completed / stats.accepted) * 100) : 0;
+      const score = Math.round((acceptanceRate * 0.4) + (completionRate * 0.6));
+      res.json({ stats, acceptanceRate, completionRate, score });
+    }
   });
+});
 });
   });
 });
