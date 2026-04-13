@@ -140,6 +140,20 @@ app.post('/forgot-password', (req, res) => {
     if (err || !trip) { res.status(400).json({ error: 'Trip not found' }); }
     else { res.json({ trip }); }
   });
+});app.post('/withdraw', (req, res) => {
+  const { userId, amount, phone, network } = req.body;
+  db.get(`SELECT wallet_balance FROM users WHERE id = ?`, [userId], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'User not found' }); }
+    else if (user.wallet_balance < amount) { res.status(400).json({ error: 'Insufficient balance' }); }
+    else if (amount < 5) { res.status(400).json({ error: 'Minimum withdrawal is GH₵ 5' }); }
+    else {
+      db.run(`UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?`, [amount, userId]);
+      db.run(`INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, 'debit', ?)`,
+        [userId, -amount, `Withdrawal to ${network} - ${phone}`]);
+      sendToUser(userId, { type: 'withdrawal', message: `GH₵ ${amount} withdrawal to ${phone} initiated!` });
+      res.json({ message: `Withdrawal of GH₵ ${amount} to ${phone} initiated successfully!` });
+    }
+  });
 });
   });
 });
