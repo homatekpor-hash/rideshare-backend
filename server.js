@@ -123,7 +123,24 @@ app.post('/forgot-password', (req, res) => {
         [userId, `EMERGENCY! ${user.name} needs help at location: ${location}. Time: ${new Date().toLocaleString()}`]);
       sendToUser(userId, { type: 'sos_received', message: 'SOS sent! Help is on the way.' });
       res.json({ message: 'SOS alert sent!' });
-    }
+    }app.get('/trip-share/:bookingId', (req, res) => {
+  const { bookingId } = req.params;
+  db.get(`
+    SELECT bookings.id, bookings.status,
+    rides.from_location, rides.to_location, rides.price,
+    users.name as driver_name, users.phone as driver_phone,
+    users.vehicle_number, users.vehicle_model, users.vehicle_color,
+    passengers.name as passenger_name
+    FROM bookings 
+    JOIN rides ON bookings.ride_id = rides.id
+    JOIN users ON rides.driver_id = users.id
+    JOIN users passengers ON bookings.passenger_id = passengers.id
+    WHERE bookings.id = ?
+  `, [bookingId], (err, trip) => {
+    if (err || !trip) { res.status(400).json({ error: 'Trip not found' }); }
+    else { res.json({ trip }); }
+  });
+});
   });
 });
 app.post('/change-password', (req, res) => {
