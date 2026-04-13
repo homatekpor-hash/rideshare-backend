@@ -101,7 +101,7 @@ app.post('/forgot-password', (req, res) => {
         if (err) { res.status(400).json({ error: err.message }); }
         else { res.json({ message: 'Password reset successfully!' }); }
       });
-    app.post('/sos', (req, res) => {
+    }app.post('/sos', (req, res) => {
   const { userId, location, message } = req.body;
   db.get(`SELECT name, phone, email FROM users WHERE id = ?`, [userId], (err, user) => {
     if (err || !user) { res.status(400).json({ error: 'User not found' }); }
