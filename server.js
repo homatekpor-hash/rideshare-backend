@@ -268,6 +268,25 @@ app.post('/rides', (req, res) => {
       if (err) { res.status(400).json({ error: err.message }); }
       else { res.json({ message: 'Ride posted!', rideId: this.lastID }); }
     });
+});app.get('/calculate-fare', (req, res) => {
+  const { from_lat, from_lng, to_lat, to_lng } = req.query;
+  if (!from_lat || !from_lng || !to_lat || !to_lng) {
+    return res.status(400).json({ error: 'Missing coordinates' });
+  }
+  const R = 6371;
+  const dLat = (to_lat - from_lat) * Math.PI / 180;
+  const dLng = (to_lng - from_lng) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(from_lat * Math.PI / 180) * Math.cos(to_lat * Math.PI / 180) *
+    Math.sin(dLng/2) * Math.sin(dLng/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const distanceKm = R * c;
+  const baseFare = 3;
+  const perKm = 1.5;
+  const calculatedFare = Math.round(baseFare + (distanceKm * perKm));
+  const minFare = 5;
+  const fare = Math.max(calculatedFare, minFare);
+  res.json({ fare, distanceKm: distanceKm.toFixed(1), baseFare, perKm });
 });
 
 app.get('/rides/match', (req, res) => {
