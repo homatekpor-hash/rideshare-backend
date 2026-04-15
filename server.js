@@ -891,6 +891,79 @@ app.post('/admin/broadcast', (req, res) => {
     surgeMessage = '⚡ Busy period! Prices are 1.2x higher.';
   }
   res.json({ surgeMultiplier, surgeMessage, isSurge: surgeMultiplier > 1 });
+});app.post('/sos', (req, res) => {
+  const { userId, location } = req.body;
+  db.get(`SELECT name, phone, email FROM users WHERE id = ?`, [userId], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'User not found' }); }
+    else {
+      db.run(`INSERT INTO complaints (user_id, subject, message) VALUES (?, 'SOS EMERGENCY', ?)`,
+        [userId, `EMERGENCY! ${user.name} needs help at location: ${location}. Time: ${new Date().toLocaleString()}`]);
+      sendToUser(userId, { type: 'sos_received', message: 'SOS sent! Help is on the way.' });
+      res.json({ message: 'SOS alert sent!' });
+    }
+  });
+});
+
+app.get('/trip-share/:bookingId', (req, res) => {
+  const { bookingId } = req.params;
+  db.get(`SELECT bookings.id, bookings.status, rides.from_location, rides.to_location, rides.price, users.name as driver_name, users.phone as driver_phone, users.vehicle_number, users.vehicle_model, users.vehicle_color, passengers.name as passenger_name FROM bookings JOIN rides ON bookings.ride_id = rides.id JOIN users ON rides.driver_id = users.id JOIN users passengers ON bookings.passenger_id = passengers.id WHERE bookings.id = ?`, [bookingId], (err, trip) => {
+    if (err || !trip) { res.status(400).json({ error: 'Trip not found' }); }
+    else { res.json({ trip }); }
+  });
+});
+
+app.post('/withdraw', (req, res) => {
+  const { userId, amount, phone, network } = req.body;
+  db.get(`SELECT wallet_balance FROM users WHERE id = ?`, [userId], (err, user) => {
+    if (err || !user) { res.status(400).json({ error: 'User not found' }); }
+    else if (user.wallet_balance < amount) { res.status(400).json({ error: 'Insufficient balance' }); }
+    else if (amount < 5) { res.status(400).json({ error: 'Minimum withdrawal is GH₵ 5' }); }
+    else {
+      db.run(`UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?`, [amount, userId]);
+      db.run(`INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, 'debit', ?)`, [userId, -amount, `Withdrawal to ${network} - ${phone}`]);
+      sendToUser(userId, { type: 'withdrawal', message: `GH₵ ${amount} withdrawal to ${phone} initiated!` });
+      res.json({ message: `Withdrawal of GH₵ ${amount} to ${phone} initiated successfully!` });
+    }
+  });
+});
+
+app.get('/driver/performance/:userId', (req, res) => {
+  const { userId } = req.params;
+  db.get(`SELECT COUNT(CASE WHEN bookings.status IN ('accepted','started','completed') THEN 1 END) as accepted, COUNT(CASE WHEN bookings.status = 'declined' THEN 1 END) as declined, COUNT(CASE WHEN bookings.status = 'completed' THEN 1 END) as completed, COUNT(CASE WHEN bookings.status = 'cancelled' THEN 1 END) as cancelled, COUNT(*) as total FROM bookings JOIN rides ON bookings.ride_id = rides.id WHERE rides.driver_id = ?`, [userId], (err, stats) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      const acceptanceRate = stats.total > 0 ? Math.round((stats.accepted / stats.total) * 100) : 0;
+      const completionRate = stats.accepted > 0 ? Math.round((stats.completed / stats.accepted) * 100) : 0;
+      const score = Math.round((acceptanceRate * 0.4) + (completionRate * 0.6));
+      res.json({ stats, acceptanceRate, completionRate, score });
+    }
+  });
+});
+
+app.get('/calculate-fare', (req, res) => {
+  const { from_lat, from_lng, to_lat, to_lng } = req.query;
+  if (!from_lat || !from_lng || !to_lat || !to_lng) { return res.status(400).json({ error: 'Missing coordinates' }); }
+  const R = 6371;
+  const dLat = (to_lat - from_lat) * Math.PI / 180;
+  const dLng = (to_lng - from_lng) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(from_lat * Math.PI / 180) * Math.cos(to_lat * Math.PI / 180) * Math.sin(dLng/2) * Math.sin(dLng/2);
+  const distanceKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const fare = Math.max(Math.round(3 + (distanceKm * 1.5)), 5);
+  res.json({ fare, distanceKm: distanceKm.toFixed(1) });
+});
+
+app.post('/admin/broadcast', (req, res) => {
+  const { message, title } = req.body;
+  if (!message) { return res.status(400).json({ error: 'Message is required' }); }
+  db.all(`SELECT id FROM users`, [], (err, users) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      users.forEach(user => {
+        sendToUser(user.id, { type: 'broadcast', title: title || 'Ryde Announcement', message });
+      });
+      res.json({ message: `Broadcast sent to ${users.length} users!` });
+    }
+  });
 });
 });
 server.listen(PORT, '0.0.0.0', () => {
