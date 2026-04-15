@@ -110,7 +110,19 @@ app.post('/forgot-password', (req, res) => {
         [userId, `EMERGENCY! ${user.name} needs help at location: ${location}. Time: ${new Date().toLocaleString()}`]);
       sendToUser(userId, { type: 'sos_received', message: '🆘 SOS sent! Help is on the way.' });
       res.json({ message: 'SOS alert sent!' });
+    }app.post('/admin/broadcast', (req, res) => {
+  const { message, title } = req.body;
+  db.all(`SELECT id FROM users`, [], (err, users) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      users.forEach(user => {
+        sendToUser(user.id, { type: 'broadcast', title: title || 'Ryde Announcement', message });
+      });
+      db.run(`INSERT INTO complaints (user_id, subject, message) VALUES (1, 'BROADCAST', ?)`, [message]);
+      res.json({ message: `Broadcast sent to ${users.length} users!` });
     }
+  });
+});
   });
 });
   });
