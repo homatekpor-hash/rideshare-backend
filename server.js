@@ -112,16 +112,17 @@ app.post('/forgot-password', (req, res) => {
       res.json({ message: 'SOS alert sent!' });
     }app.post('/admin/broadcast', (req, res) => {
   const { message, title } = req.body;
+  if (!message) { return res.status(400).json({ error: 'Message is required' }); }
   db.all(`SELECT id FROM users`, [], (err, users) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
       users.forEach(user => {
         sendToUser(user.id, { type: 'broadcast', title: title || 'Ryde Announcement', message });
       });
-      db.run(`INSERT INTO complaints (user_id, subject, message) VALUES (1, 'BROADCAST', ?)`, [message]);
       res.json({ message: `Broadcast sent to ${users.length} users!` });
     }
   });
+});
 });
   });
 });
