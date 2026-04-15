@@ -964,6 +964,36 @@ app.post('/admin/broadcast', (req, res) => {
       res.json({ message: `Broadcast sent to ${users.length} users!` });
     }
   });
+});app.get('/surge', (req, res) => {
+  const hour = new Date().getHours();
+  let surgeMultiplier = 1.0;
+  let surgeMessage = '';
+  let isSurge = false;
+
+  if ((hour >= 6 && hour <= 9) || (hour >= 16 && hour <= 20)) {
+    surgeMultiplier = 1.5;
+    surgeMessage = '🔴 Peak Hours! 1.5x surge pricing active.';
+    isSurge = true;
+  } else if ((hour >= 22 || hour <= 5)) {
+    surgeMultiplier = 1.3;
+    surgeMessage = '🌙 Late Night! 1.3x surge pricing active.';
+    isSurge = true;
+  } else {
+    surgeMessage = '🟢 Normal pricing active.';
+  }
+
+  res.json({ surgeMultiplier, surgeMessage, isSurge, hour });
+});
+
+app.post('/admin/surge', (req, res) => {
+  const { multiplier, message } = req.body;
+  global.manualSurge = { multiplier: parseFloat(multiplier), message };
+  res.json({ message: `Surge set to ${multiplier}x!` });
+});
+
+app.delete('/admin/surge', (req, res) => {
+  global.manualSurge = null;
+  res.json({ message: 'Surge pricing removed!' });
 });
 });
 server.listen(PORT, '0.0.0.0', () => {
