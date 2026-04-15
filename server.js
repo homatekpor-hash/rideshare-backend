@@ -879,6 +879,19 @@ app.post('/admin/broadcast', (req, res) => {
       res.json({ message: `Broadcast sent to ${users.length} users!` });
     }
   });
+  app.get('/surge', (req, res) => {
+  const hour = new Date().getHours();
+  let surgeMultiplier = 1.0;
+  let surgeMessage = '';
+  if ((hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 20)) {
+    surgeMultiplier = 1.5;
+    surgeMessage = '🔥 Peak hours! Prices are 1.5x higher.';
+  } else if ((hour >= 6 && hour < 7) || (hour >= 20 && hour <= 21)) {
+    surgeMultiplier = 1.2;
+    surgeMessage = '⚡ Busy period! Prices are 1.2x higher.';
+  }
+  res.json({ surgeMultiplier, surgeMessage, isSurge: surgeMultiplier > 1 });
+});
 });
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
