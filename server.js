@@ -828,10 +828,10 @@ app.get('/driver/performance/:userId', (req, res) => {
   const { userId } = req.params;
   db.get(`
     SELECT 
-      COUNT(CASE WHEN bookings.status IN ('accepted','started','completed') THEN 1 END) as accepted,
-      COUNT(CASE WHEN bookings.status = 'declined' THEN 1 END) as declined,
-      COUNT(CASE WHEN bookings.status = 'completed' THEN 1 END) as completed,
-      COUNT(CASE WHEN bookings.status = 'cancelled' THEN 1 END) as cancelled,
+      COUNT(CASE WHEN bookings.booking_status IN ('accepted','started','completed') THEN 1 END) as accepted,
+      COUNT(CASE WHEN bookings.booking_status = 'declined' THEN 1 END) as declined,
+      COUNT(CASE WHEN bookings.booking_status = 'completed' THEN 1 END) as completed,
+      COUNT(CASE WHEN bookings.booking_status = 'cancelled' THEN 1 END) as cancelled,
       COUNT(*) as total
     FROM bookings 
     JOIN rides ON bookings.ride_id = rides.id
