@@ -1037,8 +1037,8 @@ app.delete('/rides/scheduled/:id', (req, res) => {
   });
 });app.put('/bookings/:id/cancel-with-reason', (req, res) => {
   const { reason } = req.body;
+  db.run(`ALTER TABLE bookings ADD COLUMN cancel_reason TEXT`, () => {});
   db.run(`UPDATE bookings SET status = 'cancelled', cancel_reason = ? WHERE id = ?`,
-    db.run(`ALTER TABLE bookings ADD COLUMN cancel_reason TEXT`, () => {});
     [reason, req.params.id], function(err) {
       if (err) { res.status(400).json({ error: err.message }); }
       else { res.json({ message: 'Booking cancelled!' }); }

@@ -31,7 +31,6 @@ db.serialize(() => {
     vehicle_model TEXT DEFAULT NULL,
     vehicle_color TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    db.run(`ALTER TABLE bookings ADD COLUMN cancel_reason TEXT`, () => {});
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS driver_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
