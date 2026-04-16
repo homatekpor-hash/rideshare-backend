@@ -1007,7 +1007,29 @@ app.delete('/admin/surge', (req, res) => {
         });
       });
     }
+  });app.post('/rides/schedule', (req, res) => {
+  const { passenger_id, from_location, to_location, scheduled_time, seats_needed, notes } = req.body;
+  db.run(`CREATE TABLE IF NOT EXISTS scheduled_rides (id INTEGER PRIMARY KEY AUTOINCREMENT, passenger_id INTEGER, from_location TEXT, to_location TEXT, scheduled_time TEXT, seats_needed INTEGER DEFAULT 1, notes TEXT, status TEXT DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  db.run(`INSERT INTO scheduled_rides (passenger_id, from_location, to_location, scheduled_time, seats_needed, notes) VALUES (?, ?, ?, ?, ?, ?)`,
+    [passenger_id, from_location, to_location, scheduled_time, seats_needed || 1, notes || ''], function(err) {
+      if (err) { res.status(400).json({ error: err.message }); }
+      else { res.json({ message: 'Ride scheduled successfully!', id: this.lastID }); }
+    });
+});
+
+app.get('/rides/scheduled/:userId', (req, res) => {
+  db.all(`SELECT * FROM scheduled_rides WHERE passenger_id = ? ORDER BY scheduled_time ASC`, [req.params.userId], (err, rides) => {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ rides }); }
   });
+});
+
+app.delete('/rides/scheduled/:id', (req, res) => {
+  db.run(`UPDATE scheduled_rides SET status = 'cancelled' WHERE id = ?`, [req.params.id], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'Scheduled ride cancelled!' }); }
+  });
+});
 });
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
