@@ -1035,6 +1035,14 @@ app.delete('/rides/scheduled/:id', (req, res) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Scheduled ride cancelled!' }); }
   });
+});app.put('/bookings/:id/cancel-with-reason', (req, res) => {
+  const { reason } = req.body;
+  db.run(`UPDATE bookings SET status = 'cancelled', cancel_reason = ? WHERE id = ?`,
+    db.run(`ALTER TABLE bookings ADD COLUMN cancel_reason TEXT`, () => {});
+    [reason, req.params.id], function(err) {
+      if (err) { res.status(400).json({ error: err.message }); }
+      else { res.json({ message: 'Booking cancelled!' }); }
+    });
 });
 });
 server.listen(PORT, '0.0.0.0', () => {
