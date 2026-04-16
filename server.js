@@ -868,17 +868,21 @@ app.get('/calculate-fare', (req, res) => {
 });
 
 app.post('/admin/broadcast', (req, res) => {
-  const { message, title } = req.body;
+  const { message, title, target } = req.body;
   if (!message) { return res.status(400).json({ error: 'Message is required' }); }
-  db.all(`SELECT id FROM users`, [], (err, users) => {
+  let query = `SELECT id FROM users`;
+  if (target === 'drivers') query = `SELECT id FROM users WHERE role = 'driver'`;
+  else if (target === 'riders') query = `SELECT id FROM users WHERE role = 'rider'`;
+  db.all(query, [], (err, users) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else {
       users.forEach(user => {
         sendToUser(user.id, { type: 'broadcast', title: title || 'Ryde Announcement', message });
       });
-      res.json({ message: `Broadcast sent to ${users.length} users!` });
+      res.json({ message: `Broadcast sent to ${users.length} ${target || 'users'}!` });
     }
   });
+});
   app.get('/surge', (req, res) => {
   const hour = new Date().getHours();
   let surgeMultiplier = 1.0;
