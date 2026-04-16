@@ -998,8 +998,10 @@ app.post('/admin/surge', (req, res) => {
 app.delete('/admin/surge', (req, res) => {
   global.manualSurge = null;
   res.json({ message: 'Surge pricing removed!' });
+
 });
-});app.get('/driver/profile/:driverId', (req, res) => {
+
+app.get('/driver/profile/:driverId', (req, res) => {
   const { driverId } = req.params;
   db.get(`SELECT id, name, phone, profile_picture, vehicle_number, vehicle_model, vehicle_color, created_at, referral_code FROM users WHERE id = ?`, [driverId], (err, driver) => {
     if (err || !driver) { res.status(400).json({ error: 'Driver not found' }); }
