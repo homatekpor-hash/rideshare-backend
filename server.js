@@ -1043,6 +1043,25 @@ app.delete('/rides/scheduled/:id', (req, res) => {
       if (err) { res.status(400).json({ error: err.message }); }
       else { res.json({ message: 'Booking cancelled!' }); }
     });
+});app.put('/admin/users/:id/ban', (req, res) => {
+  db.run(`UPDATE users SET is_banned = 1 WHERE id = ?`, [req.params.id], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'User banned successfully!' }); }
+  });
+});
+
+app.put('/admin/users/:id/unban', (req, res) => {
+  db.run(`UPDATE users SET is_banned = 0 WHERE id = ?`, [req.params.id], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'User unbanned successfully!' }); }
+  });
+});
+
+app.delete('/admin/users/:id', (req, res) => {
+  db.run(`DELETE FROM users WHERE id = ?`, [req.params.id], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else { res.json({ message: 'User deleted successfully!' }); }
+  });
 });
 });
 server.listen(PORT, '0.0.0.0', () => {
