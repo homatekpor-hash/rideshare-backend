@@ -1082,6 +1082,23 @@ app.delete('/admin/users/:id', (req, res) => {
     else { res.json({ message: 'User deleted!' }); }
   });
 });
+app.post('/driver/location', (req, res) => {
+  const { driverId, lat, lng } = req.body;
+  db.run(`UPDATE users SET current_lat = ?, current_lng = ? WHERE id = ?`, [lat, lng, driverId], function(err) {
+    if (err) { res.status(400).json({ error: err.message }); }
+    else {
+      sendToUser(driverId, { type: 'location_updated' });
+      res.json({ message: 'Location updated!' });
+    }
+  });
+});
+
+app.get('/driver/location/:driverId', (req, res) => {
+  db.get(`SELECT current_lat, current_lng, name, vehicle_number, vehicle_model, vehicle_color FROM users WHERE id = ?`, [req.params.driverId], (err, driver) => {
+    if (err || !driver) { res.status(400).json({ error: 'Driver not found' }); }
+    else { res.json({ driver }); }
+  });
+});
 });
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);

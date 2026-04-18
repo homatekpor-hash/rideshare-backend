@@ -31,7 +31,9 @@ db.serialize(() => {
     vehicle_model TEXT DEFAULT NULL,
     vehicle_color TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+    
+  )`);db.run(`ALTER TABLE users ADD COLUMN current_lat REAL`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN current_lng REAL`, () => {});
   db.run(`CREATE TABLE IF NOT EXISTS driver_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     driver_id INTEGER NOT NULL,
@@ -121,6 +123,7 @@ db.serialize(() => {
     description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
+    
   )`);
   console.log('Database tables ready!');
 });
