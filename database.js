@@ -125,6 +125,29 @@ db.run(`ALTER TABLE users ADD COLUMN current_lng REAL`, () => {});
     FOREIGN KEY (user_id) REFERENCES users(id)
     
   )`);
+  db.run(`CREATE TABLE IF NOT EXISTS corporate_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  phone TEXT,
+  address TEXT,
+  contact_person TEXT,
+  credit_balance REAL DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+db.run(`CREATE TABLE IF NOT EXISTS corporate_bookings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  corporate_id INTEGER,
+  employee_name TEXT,
+  employee_phone TEXT,
+  from_location TEXT,
+  to_location TEXT,
+  amount REAL,
+  status TEXT DEFAULT 'pending',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
   console.log('Database tables ready!');
 });
 
