@@ -1086,10 +1086,7 @@ app.post('/driver/location', (req, res) => {
   const { driverId, lat, lng } = req.body;
   db.run(`UPDATE users SET current_lat = ?, current_lng = ? WHERE id = ?`, [lat, lng, driverId], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
-    else {
-      sendToUser(driverId, { type: 'location_updated' });
-      res.json({ message: 'Location updated!' });
-    }
+    else { res.json({ message: 'Location updated!' }); }
   });
 });
 
@@ -1099,10 +1096,9 @@ app.get('/driver/location/:driverId', (req, res) => {
     else { res.json({ driver }); }
   });
 });
-// Corporate Accounts
+
 app.post('/corporate/register', (req, res) => {
   const { company_name, email, phone, address, contact_person } = req.body;
-  db.run(`CREATE TABLE IF NOT EXISTS corporate_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, phone TEXT, address TEXT, contact_person TEXT, credit_balance REAL DEFAULT 0, is_active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
   db.run(`INSERT INTO corporate_accounts (company_name, email, phone, address, contact_person) VALUES (?, ?, ?, ?, ?)`,
     [company_name, email, phone, address, contact_person], function(err) {
       if (err) { res.status(400).json({ error: err.message }); }
@@ -1121,7 +1117,7 @@ app.post('/corporate/topup', (req, res) => {
   const { corporateId, amount } = req.body;
   db.run(`UPDATE corporate_accounts SET credit_balance = credit_balance + ? WHERE id = ?`, [amount, corporateId], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
-    else { res.json({ message: `GH₵ ${amount} added to corporate account!` }); }
+    else { res.json({ message: 'Credit added!' }); }
   });
 });
 
@@ -1132,7 +1128,6 @@ app.post('/corporate/book', (req, res) => {
     else if (account.credit_balance < amount) { res.status(400).json({ error: 'Insufficient corporate credit' }); }
     else {
       db.run(`UPDATE corporate_accounts SET credit_balance = credit_balance - ? WHERE id = ?`, [amount, corporateId]);
-      db.run(`CREATE TABLE IF NOT EXISTS corporate_bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, corporate_id INTEGER, employee_name TEXT, employee_phone TEXT, from_location TEXT, to_location TEXT, amount REAL, status TEXT DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
       db.run(`INSERT INTO corporate_bookings (corporate_id, employee_name, employee_phone, from_location, to_location, amount) VALUES (?, ?, ?, ?, ?, ?)`,
         [corporateId, employeeName, employeePhone, from_location, to_location, amount], function(err) {
           if (err) { res.status(400).json({ error: err.message }); }
@@ -1154,9 +1149,8 @@ app.delete('/corporate/:id', (req, res) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Corporate account deactivated!' }); }
   });
-
+});
 });
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
-
