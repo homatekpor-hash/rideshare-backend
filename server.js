@@ -1145,7 +1145,7 @@ app.get('/corporate/bookings/:corporateId', (req, res) => {
   });
 });
 
-app.delete('/corporate/:id', (req, res) => {
+app.delete('/corporate/deactivate/:id', (req, res) => {
   db.run(`UPDATE corporate_accounts SET is_active = 0 WHERE id = ?`, [req.params.id], function(err) {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Corporate account deactivated!' }); }
