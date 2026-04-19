@@ -1154,8 +1154,9 @@ app.delete('/corporate/:id', (req, res) => {
     if (err) { res.status(400).json({ error: err.message }); }
     else { res.json({ message: 'Corporate account deactivated!' }); }
   });
-});
+
 });
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
+
